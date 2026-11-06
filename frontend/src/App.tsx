@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Login from './pages/Login'
+import AppLayout from './app/AppLayout'
+import Tasks from './app/pages/Tasks'
 import DocsLayout from './docs/DocsLayout'
 import DocsIntro from './docs/pages/Intro'
 import DocsQuickstart from './docs/pages/Quickstart'
@@ -18,6 +20,10 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Login />} />
+        <Route path="/app" element={<AppLayout />}>
+          <Route index element={<Navigate to="tasks" replace />} />
+          <Route path="tasks" element={<Tasks />} />
+        </Route>
         <Route path="/docs" element={<DocsLayout />}>
           <Route index element={<DocsIntro />} />
           <Route path="quickstart" element={<DocsQuickstart />} />

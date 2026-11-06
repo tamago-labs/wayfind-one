@@ -1,0 +1,29 @@
+{
+  "name": "wayfind-one",
+  "version": "0.1.0",
+  "description": "One team. One private computer. One AI workspace. No central server.",
+  "type": "module",
+  "bin": {
+    "wayfind-one": "./bin/wayfind-one.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js up",
+    "lint": "oxlint"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "b4a": "^1.8.1",
+    "corestore": "^7.16.1",
+    "express": "^4.21.2",
+    "hypercore-crypto": "^3.7.0",
+    "hyperswarm": "^4.8.0",
+    "keet-identity-key": "^3.2.0",
+    "z32": "^1.1.0"
+  },
+  "devDependencies": {
+    "oxlint": "^1.90.0"
+  }
+}

@@ -27,6 +27,9 @@ export default function Header() {
           <Link to="/" className="hover:opacity-60 transition-opacity">
             Login
           </Link>
+          <Link to="/app/tasks" className="hover:opacity-60 transition-opacity">
+            App
+          </Link>
           <Link to="/docs" className="hover:opacity-60 transition-opacity">
             Docs
           </Link>
@@ -65,6 +68,9 @@ export default function Header() {
           >
             <Link to="/" onClick={() => setOpen(false)} className="block text-[15px] font-medium text-navy hover:opacity-60">
               Login
+            </Link>
+            <Link to="/app/tasks" onClick={() => setOpen(false)} className="block text-[15px] font-medium text-navy hover:opacity-60">
+              App
             </Link>
             <Link to="/docs" onClick={() => setOpen(false)} className="block text-[15px] font-medium text-navy hover:opacity-60">
               Docs
