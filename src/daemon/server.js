@@ -146,6 +146,20 @@ export function startServer({ port, ctrl }) {
     }
   })
 
+  app.post('/api/bots/:id/chat', async (req, res) => {
+    try {
+      const bot = await ctrl.chat(req.params.id, req.body?.text)
+      res.json({ ok: true, bot })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /unknown bot/.test(msg) ? 404
+        : /no active team|text is required/.test(msg) ? 400
+        : /bot is busy/.test(msg) ? 409
+        : 500
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
   app.get('/api/storage', (req, res) => {
     res.json({ ok: true, home: ctrl.base, bytes: dirBytes(ctrl.base) })
   })
@@ -158,6 +172,9 @@ export function startServer({ port, ctrl }) {
       try {
         await ctrl.deactivate()
       } catch { /* going away anyway */ }
+      try {
+        await ctrl.removeComputers()
+      } catch { /* best effort */ }
       try {
         fs.rmSync(ctrl.base, { recursive: true, force: true })
       } catch { /* best effort */ }

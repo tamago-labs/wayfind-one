@@ -54,6 +54,18 @@ export default function App() {
     setDismissed(true)
   }
 
+  const sendChat = async (text: string): Promise<boolean> => {
+    const bot = bots[cur]
+    if (!bot) return false
+    try {
+      const data = await api<{ bot: Bot }>(`/api/bots/${bot.id}/chat`, { text })
+      setBots((prev) => prev.map((b, i) => (i === cur ? data.bot : b)))
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const createBot = async (name: string, isChief: boolean): Promise<string | null> => {
     try {
       const data = await api<{ bot: Bot }>('/api/bots', { name, isChiefOfStaff: isChief })
@@ -114,10 +126,11 @@ export default function App() {
         onToggleSearch={() => setShowSearch((s) => !s)}
         onNew={() => setBotModalOpen(true)}
       />
-      <ChatMain status={status} bot={bots[cur] ?? null} panelOpen={panelOpen} onOpenPanel={() => setPanelOpen((o) => !o)} />
+      <ChatMain status={status} bot={bots[cur] ?? null} panelOpen={panelOpen} onOpenPanel={() => setPanelOpen((o) => !o)} onSend={sendChat} />
       {bots[cur] && (
         <BotPanel
           bot={bots[cur]}
+          computer={status?.computer ?? null}
           open={panelOpen}
           onClose={() => setPanelOpen(false)}
           onSave={saveBot}

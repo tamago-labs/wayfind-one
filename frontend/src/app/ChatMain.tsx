@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { PanelRight } from 'lucide-react'
 import Mascot, { type MascotColor, type MascotShape } from './Mascot'
 import Thread from './Thread'
@@ -9,9 +10,32 @@ interface Props {
   bot: Bot | null
   panelOpen: boolean
   onOpenPanel: () => void
+  onSend: (text: string) => Promise<boolean>
 }
 
-export default function ChatMain({ status, bot, panelOpen, onOpenPanel }: Props) {
+export default function ChatMain({ status, bot, panelOpen, onOpenPanel, onSend }: Props) {
+  const [draft, setDraft] = useState('')
+  const [pending, setPending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+
+  // New bot selected: fresh composer.
+  const [draftFor, setDraftFor] = useState(bot?.id)
+  if (bot?.id !== draftFor) {
+    setDraftFor(bot?.id)
+    setDraft('')
+    setSendError(null)
+  }
+
+  const send = async () => {
+    const v = draft.trim()
+    if (!v || pending || !bot) return
+    setPending(true)
+    setSendError(null)
+    setDraft('')
+    const ok = await onSend(v)
+    setPending(false)
+    if (!ok) setSendError('That run failed — try again.')
+  }
   if (!status) {
     return (
       <main className="grid min-w-0 flex-1 place-items-center bg-thread p-6">
@@ -80,8 +104,31 @@ export default function ChatMain({ status, bot, panelOpen, onOpenPanel }: Props)
         </button>
       </header>
 
-      <Thread bot={bot} />
-      <Composer botName={bot.name} />
+      <ComputerBanner state={status.computer?.state} error={status.computer?.error} />
+      <Thread bot={bot} typing={pending} />
+      <Composer botName={bot.name} draft={draft} onDraft={setDraft} onSend={() => void send()} busy={pending} />
+      {sendError && (
+        <p className="mx-auto w-full max-w-2xl px-6 pb-4 text-center text-sm font-medium text-bcoral">{sendError}</p>
+      )}
     </main>
+  )
+}
+
+function ComputerBanner({ state, error }: { state?: string; error?: string }) {
+  // Healthy computer = clean thread (cloud parity). Banner only when
+  // attention is needed: starting, or failed with the reason.
+  if (!state || state === 'off' || state === 'running') return null
+  const bad = state === 'unavailable'
+  return (
+    <div
+      className={`mx-4 mb-1 flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-center text-xs font-bold text-navy ${
+        bad ? 'bg-bcoral/25' : 'bg-bamber/25'
+      }`}
+      title={error ?? ''}
+    >
+      {state === 'starting'
+        ? 'Starting local computer…'
+        : `Local computer unavailable${error ? ` — ${error}` : ''}`}
+    </div>
   )
 }

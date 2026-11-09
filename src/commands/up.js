@@ -7,12 +7,20 @@ import {
   setActive, clearActive, readProfile, writeProfile, joinTeam
 } from '../teams.js'
 import { loadBots, createBot, updateBot, deleteBot } from '../bots.js'
+import { runTurn } from '../agent.js'
+import { probeDocker, ensureComputer, removeAllComputers } from '../computer.js'
 import { startServer } from '../daemon/server.js'
+import path from 'node:path'
 
 // Bootstrap: identity + team + swarm + shared store + daemon.
-// The daemon is the sole store writer. Boots team-less too —
-// the UI setup screen creates or picks a team, which activates everything.
+// Docker is mandatory: without the engine the daemon refuses to start.
+// Boots team-less too — the UI setup screen creates or picks a team,
+// and activating a team auto-starts the local computer.
 export async function upCommand({ port, topic, home }) {
+  if (!(await probeDocker())) {
+    console.error('wayfind-one: Docker Desktop is not running — start it, then run again.')
+    process.exit(1)
+  }
   migrateLegacy(home)
 
   const ctrl = {
@@ -23,11 +31,16 @@ export async function upCommand({ port, topic, home }) {
     swarm: null,
     store: null,
     writerAck: null,
+    computer: { state: 'off' },
+
+    computerStatus() {
+      return { ...this.computer }
+    },
 
     async status() {
       const teams = listTeams(this.base)
       if (!this.team || !this.swarm) {
-        return { team: null, joined: false, peers: [], teams }
+        return { team: null, joined: false, peers: [], teams, computer: this.computerStatus() }
       }
       const [members, invites] = await Promise.all([
         this.store ? this.store.members().catch(() => []) : [],
@@ -37,6 +50,7 @@ export async function upCommand({ port, topic, home }) {
         team: { name: this.team.teamName, id: this.team.teamId },
         nodeId: this.nodeId,
         ...this.swarm.status(),
+        computer: this.computerStatus(),
         store: { writable: this.store?.writable ?? false },
         members,
         invites,
@@ -117,6 +131,22 @@ export async function upCommand({ port, topic, home }) {
       this.store = store
       setActive(this.base, teamId)
 
+      // Auto-start the local computer: tool execution only, conversation
+      // stays at the host. Activation fails if the computer won't start.
+      this.computer = { state: 'starting' }
+      try {
+        const c = await ensureComputer({
+          nodeId: this.nodeId,
+          workspaceDir: path.join(teamHome, 'workspace'),
+          key: teamId,
+          log: (m) => console.log(m)
+        })
+        this.computer = { state: 'running', container: c.name, image: c.image, workspace: c.workspace }
+      } catch (err) {
+        this.computer = { state: 'unavailable', error: String(err?.message ?? err) }
+        throw new Error(`local computer failed to start: ${err?.message ?? err}`)
+      }
+
       if (store.writable) {
         await syncLedgerToStore()
         await backfillSelf()
@@ -167,6 +197,11 @@ export async function upCommand({ port, topic, home }) {
       return this.status()
     },
 
+    async removeComputers() {
+      await removeAllComputers()
+      this.computer = { state: 'off' }
+    },
+
     async setProfile(displayName) {
       if (!this.team || !this.teamHome || !this.store) throw new Error('no active team')
       if (!this.store.writable) throw new Error('not a writer yet — wait for sync')
@@ -212,8 +247,23 @@ export async function upCommand({ port, topic, home }) {
       const ok = deleteBot(this.teamHome, this.nodeId, String(id))
       if (!ok) throw new Error('unknown bot')
       return { ok: true }
+    },
+
+    // One in-flight turn per bot; the single daemon owns the thread file.
+    async chat(botId, text) {
+      if (!this.team || !this.teamHome || !this.nodeId) throw new Error('no active team')
+      const id = String(botId)
+      if (busyBots.has(id)) throw new Error('bot is busy')
+      busyBots.add(id)
+      try {
+        return await runTurn({ teamDir: this.teamHome, nodeId: this.nodeId, botId: id, text })
+      } finally {
+        busyBots.delete(id)
+      }
     }
   }
+
+  const busyBots = new Set()
 
   // Writer onboarding handshake (joiner asks, issuer adds).
   async function handleWriterRequest(msg, reply) {

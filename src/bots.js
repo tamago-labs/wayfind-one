@@ -85,3 +85,14 @@ export function deleteBot(teamDir, nodeIdHex, id) {
   saveBots(teamDir, nodeIdHex, next)
   return true
 }
+
+// Append thread messages (conversation lives at the host, in this file).
+export function appendMsgs(teamDir, nodeIdHex, id, msgs, cap = 200) {
+  const bots = loadBots(teamDir, nodeIdHex)
+  const bot = bots.find((b) => b.id === id)
+  if (!bot) return null
+  bot.msgs.push(...msgs)
+  if (bot.msgs.length > cap) bot.msgs = bot.msgs.slice(bot.msgs.length - cap)
+  saveBots(teamDir, nodeIdHex, bots)
+  return bot
+}

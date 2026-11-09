@@ -22,6 +22,7 @@ export interface Status {
   topic?: string | null
   peers: Peer[]
   store?: { writable: boolean }
+  computer?: { state: string; container?: string; image?: string; workspace?: string; error?: string }
   members: Member[]
   invites?: unknown[]
   teams: TeamRef[]

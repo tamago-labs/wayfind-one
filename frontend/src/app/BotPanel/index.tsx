@@ -13,8 +13,17 @@ export interface BotEdits {
   shape: MascotShape
 }
 
+export interface ComputerInfo {
+  state: string
+  container?: string
+  image?: string
+  workspace?: string
+  error?: string
+}
+
 interface Props {
   bot: Bot
+  computer?: ComputerInfo | null
   open: boolean
   onClose: () => void
   onSave: (edits: BotEdits) => Promise<string | null>
@@ -30,7 +39,18 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
-export default function BotPanel({ bot, open, onClose, onSave, onDelete }: Props) {
+function statusColor(state?: string): string {
+  if (state === 'running') return 'text-[#12706f]'
+  if (state === 'starting') return 'text-bamber'
+  if (state === 'unavailable') return 'text-bcoral'
+  return 'text-heroslate'
+}
+
+function short(v?: string | null): string {
+  return v ? `${v.slice(0, 8)}…` : '—'
+}
+
+export default function BotPanel({ bot, computer, open, onClose, onSave, onDelete }: Props) {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const v: BotEdits = {
@@ -92,6 +112,26 @@ export default function BotPanel({ bot, open, onClose, onSave, onDelete }: Props
             <span className="font-bold text-navy">This machine only</span>
           </Row>
         </div>
+
+        <p className="mt-5 px-1 text-xs font-bold uppercase tracking-wider text-heroslate">Computer</p>
+        <div className="mt-2 space-y-2 text-sm" title={computer?.error ?? ''}>
+          <Row label="Status">
+            <span className={`font-bold ${statusColor(computer?.state)}`}>
+              {computer?.state ?? 'off'}
+            </span>
+          </Row>
+          <Row label="Container">
+            <span className="max-w-[10rem] truncate font-mono text-xs text-navy" title={computer?.container ?? ''}>
+              {short(computer?.container)}
+            </span>
+          </Row>
+          <Row label="Image">
+            <span className="max-w-[10rem] truncate font-mono text-xs text-navy" title={computer?.image ?? ''}>
+              {computer?.image ?? '—'}
+            </span>
+          </Row>
+        </div>
+
         <button
           onClick={() => setEditOpen(true)}
           className="mt-4 rounded-full bg-navy px-5 py-2 text-sm font-bold text-white hover:bg-[#1c3350]"
