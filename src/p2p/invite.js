@@ -6,10 +6,11 @@ import crypto from 'hypercore-crypto'
 import { TeamSwarm } from './swarm.js'
 import { deriveTopic } from './swarm.js'
 
-// Invite = z32(JSON { v, teamId, teamSecret, teamName, nonce, issuer }).
+// Invite = z32(JSON { v, teamId, teamSecret, teamName, nonce, issuer, baseKey }).
 // Single-use is enforced by the ISSUER's ledger (home/invites.json):
 // the first redemption marks the nonce spent; replays are rejected.
 // The joiner also keeps home/used-invites.json as a replay guard.
+// baseKey lets the joiner open the shared team store read-only immediately.
 
 function ledgerPath(home, name) {
   return path.join(home, name)
@@ -23,7 +24,7 @@ function readJson(file, fallback) {
   }
 }
 
-export function createInvite(home, team, issuerNodeId) {
+export function createInvite(home, team, issuerNodeId, baseKey = null) {
   const payload = {
     v: 1,
     teamId: team.teamId,
@@ -32,6 +33,7 @@ export function createInvite(home, team, issuerNodeId) {
     nonce: b4a.toString(crypto.randomBytes(16), 'hex'),
     issuer: issuerNodeId
   }
+  if (baseKey) payload.baseKey = baseKey
   const code = z32.encode(b4a.from(JSON.stringify(payload), 'utf8'))
 
   const ledger = readJson(ledgerPath(home, 'invites.json'), {})
@@ -48,7 +50,7 @@ export function decodeInvite(code) {
   } catch {
     throw new Error('invalid invite code')
   }
-  if (payload?.v !== 1 || !payload.teamId || !payload.teamSecret || !payload.nonce || !payload.issuer) {
+  if (payload?.v !== 1 || !payload.teamId || !payload.teamSecret || !payload.nonce || !payload.issuer || !payload.baseKey) {
     throw new Error('invalid invite code')
   }
   return payload
@@ -105,7 +107,7 @@ export async function redeemInvite({ home, code, nodeId, keyPair, timeoutMs = 20
     const send = () => {
       for (const [, p] of swarm.peers) {
         try {
-          p.conn.write(JSON.stringify({ type: 'redeem', nonce: inv.nonce, for: inv.issuer, topic }) + '\n')
+          p.conn.write(JSON.stringify({ type: 'redeem', nonce: inv.nonce, for: inv.issuer, nodeId, topic }) + '\n')
         } catch { /* retry on next pass */ }
       }
     }

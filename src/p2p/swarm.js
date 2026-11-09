@@ -14,12 +14,13 @@ export function deriveTopic(teamIdHex, teamSecretHex) {
 // secrets can derive (and therefore discover) the topic. Connections are
 // Noise-encrypted + key-authenticated by Hyperswarm itself.
 export class TeamSwarm {
-  constructor({ nodeId, keyPair, onRedeem, onMessage, onHello }) {
+  constructor({ nodeId, keyPair, onRedeem, onMessage, onHello, onPeerConn }) {
     this.nodeId = nodeId
     this.keyPair = keyPair
     this.onRedeem = onRedeem ?? null
     this.onMessage = onMessage ?? null
     this.onHello = onHello ?? null
+    this.onPeerConn = onPeerConn ?? null // e.g. store replication per conn
     this.localInfo = {}
     this.swarm = null
     this.discovery = null
@@ -28,7 +29,7 @@ export class TeamSwarm {
     this._pingTimer = null
   }
 
-  // Extra fields merged into our hello (e.g. task-core key for replication).
+  // Extra fields merged into our hello (kept minimal: identity + topic).
   setLocalInfo(info) {
     Object.assign(this.localInfo, info)
   }
@@ -104,6 +105,11 @@ export class TeamSwarm {
     }
     const peer = { conn, rttMs: null, lastSeen: Date.now(), pingAt: 0 }
     this.peers.set(remoteId, peer)
+    if (this.onPeerConn) {
+      try {
+        this.onPeerConn(conn)
+      } catch { /* replication hook must never break peering */ }
+    }
     this._send(conn, { type: 'hello', nodeId: this.nodeId, topic: this.topic, ...this.localInfo })
 
     let buf = Buffer.alloc(0)
@@ -159,7 +165,7 @@ export class TeamSwarm {
     // The reply goes back on the arrival conn (not the tracked one) so
     // crossed double-dials can never misroute it.
     if (msg.for !== this.nodeId || !this.onRedeem) return
-    const res = this.onRedeem(msg.nonce, remoteId)
+    const res = this.onRedeem(msg.nonce, remoteId, msg)
     reply({ type: 'redeemed', ok: res.ok, reason: res.reason, topic: this.topic })
   }
 

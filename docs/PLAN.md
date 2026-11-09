@@ -116,13 +116,13 @@ We make a precise claim, not a magical one. The workspace has four data domains:
 
 **Requirements:** Node.js 20+.
 
-**For judges — one command, launcher walks you through the rest**
+**For judges — one command, then the UI walks you through the rest**
 
 ```bash
-npx wayfind-one demo
+node bin/wayfind-one.js
 ```
 
-The launcher asks a single question — **start a team** (you pick the team name) or **join a team** (you paste an invite code) — then runs the daemon and opens the web UI at `http://localhost:7777`. Everything else happens on the website: team status, peers, and (as they land) tasks, bots and approvals.
+The daemon boots and serves the UI at `http://localhost:7777`. If no team exists yet, the setup screen creates one (or picks an existing team on the machine) — no terminal commands needed. Everything else happens on the website: team status, peers, and (as they land) tasks, bots and approvals.
 
 **Manual path** (exactly what the launcher does under the hood)
 
@@ -148,6 +148,7 @@ npx wayfind-one up
 
 | Command | What it does |
 |---|---|
+| `wayfind-one [--port 7777]` | Start daemon + serve UI (active team, or the setup screen when none exists) |
 | `wayfind-one init --team <name>` | Create node identity, team key and local store |
 | `wayfind-one up [--port 7777]` | Start daemon, web UI and P2P |
 | `wayfind-one invite` | Create a one-time invite code |

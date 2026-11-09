@@ -4,10 +4,20 @@ import b4a from 'b4a'
 import crypto from 'hypercore-crypto'
 import Identity from 'keet-identity-key'
 
-// Member identity (keet, portable) + per-node device key (attested, never leaves disk).
-// Layout in WAYFIND_HOME:
-//   identity.json { mnemonic, devicePublicKey, deviceSecretKey, deviceProof }
-//   team.json     { teamName, teamId, teamSecret, topic }
+// Ephemeral identity for pre-join redemption: the joiner needs a transport
+// keypair before any team home exists. Nothing is written to disk.
+export async function ephemeralIdentity() {
+  const mnemonic = Identity.generateMnemonic()
+  const identity = await Identity.from({ mnemonic })
+  const deviceKeyPair = crypto.keyPair()
+  const deviceProof = await identity.bootstrap(deviceKeyPair.publicKey)
+  return {
+    identity,
+    identityPublicKey: b4a.toString(identity.identityPublicKey, 'hex'),
+    deviceKeyPair,
+    deviceProof
+  }
+}
 
 export async function loadOrCreateIdentity(home) {
   fs.mkdirSync(home, { recursive: true })

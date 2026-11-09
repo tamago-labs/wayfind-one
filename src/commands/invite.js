@@ -1,19 +1,26 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import { loadOrCreateIdentity } from '../p2p/identity.js'
 import { createInvite } from '../p2p/invite.js'
+import { migrateLegacy, readTeam } from '../teams.js'
 
 export async function inviteCommand({ home }) {
-  const teamFile = path.join(home, 'team.json')
-  if (!fs.existsSync(teamFile)) {
-    console.error(`wayfind-one invite: no team in ${home} — run 'init' first`)
+  const reg = migrateLegacy(home)
+  const teamId = reg.active
+  const teamHome = teamId ? reg.teams[teamId]?.path : null
+  const team = teamHome ? readTeam(teamHome) : null
+  if (!team) {
+    console.error(`wayfind-one invite: no active team — run 'init' first or create one in the UI`)
     process.exitCode = 2
     return
   }
-  const team = JSON.parse(fs.readFileSync(teamFile, 'utf8'))
-  const id = await loadOrCreateIdentity(home)
+  const id = await loadOrCreateIdentity(teamHome)
 
-  const { code } = createInvite(home, team, id.identityPublicKey)
+  if (!team.baseKey) {
+    console.error(`wayfind-one invite: team store not created yet — run 'up' once first, then invite`)
+    process.exitCode = 2
+    return
+  }
+
+  const { code } = createInvite(teamHome, team, id.identityPublicKey, team.baseKey)
 
   console.log(code)
   console.error(`\none-time invite for team '${team.teamName}'. Share it privately.`)

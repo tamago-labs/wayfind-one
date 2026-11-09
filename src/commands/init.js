@@ -1,27 +1,19 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import crypto from 'hypercore-crypto'
-import b4a from 'b4a'
-import { loadOrCreateIdentity } from '../p2p/identity.js'
-import { deriveTopic } from '../p2p/swarm.js'
+import { migrateLegacy, createTeam, setActive } from '../teams.js'
 
 export async function initCommand({ team, force, home }) {
-  fs.mkdirSync(home, { recursive: true })
-  const teamFile = path.join(home, 'team.json')
-  if (fs.existsSync(teamFile) && !force) {
-    console.error(`wayfind-one init: store already exists at ${home} (use --force to reset)`)
+  const reg = migrateLegacy(home)
+  if (reg.active && !force) {
+    const name = reg.teams[reg.active]?.name ?? reg.active.slice(0, 8)
+    console.error(`wayfind-one init: team '${name}' already active (use --force to add another)`)
     process.exitCode = 2
     return
   }
-  const id = await loadOrCreateIdentity(home)
-  const teamId = b4a.toString(crypto.randomBytes(32), 'hex')
-  const teamSecret = b4a.toString(crypto.randomBytes(32), 'hex')
-  const topic = deriveTopic(teamId, teamSecret)
-  fs.writeFileSync(teamFile, JSON.stringify({ teamName: team, teamId, teamSecret, topic }, null, 2))
+  const { team: created } = await createTeam(home, team)
+  setActive(home, created.teamId)
 
-  console.log(`team '${team}' created in ${home}`)
-  console.log(`node identity: ${id.identityPublicKey.slice(0, 16)}…`)
-  console.log(`topic: ${topic}`)
-  console.log(`\nnext: wayfind-one up --port 7777`)
+  console.log(`team '${team}' created`)
+  console.log(`node home: ${home}`)
+  console.log(`topic: ${created.topic}`)
+  console.log(`\nnext: wayfind-one up --port 7777 (or run with no args)`)
   console.log(`then share access: wayfind-one invite (inviter must stay online for redeem)`)
 }

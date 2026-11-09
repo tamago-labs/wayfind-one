@@ -7,7 +7,8 @@
     "wayfind-one": "./bin/wayfind-one.js"
   },
   "scripts": {
-    "start": "node src/cli.js up",
+    "start": "node bin/wayfind-one.js up",
+    "guest": "node bin/wayfind-one.js --home .guest --port 7778",
     "lint": "oxlint"
   },
   "engines": {
@@ -15,8 +16,11 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
+    "autobase": "^7.28.2",
     "b4a": "^1.8.1",
+    "corestore": "^7.16.1",
     "express": "^4.21.2",
+    "hyperbee": "^2.27.3",
     "hypercore-crypto": "^3.7.0",
     "hyperswarm": "^4.8.0",
     "keet-identity-key": "^3.2.0",

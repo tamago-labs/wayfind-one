@@ -14,6 +14,7 @@ function help() {
   console.log(`wayfind-one — one team, one private computer, one AI workspace
 
 Usage:
+  wayfind-one [--port 7777]        start daemon + serve UI (active team, if any)
   wayfind-one init --team <name> [--force]
   wayfind-one up [--port 7777] [--topic <hex>]
   wayfind-one invite
@@ -23,6 +24,7 @@ Planned (not yet): bot create, verify, doctor, demo
 
 Env:
   WAYFIND_HOME   node home dir (default ~/.wayfind-one)
+  --home <dir>   same, as a flag (overrides WAYFIND_HOME)
 `)
 }
 
@@ -35,9 +37,27 @@ function flag(argv, name) {
   return i !== -1 ? argv[i + 1] : null
 }
 
+const COMMANDS = new Set(['init', 'up', 'invite', 'join', 'bot', 'verify', 'doctor', 'demo'])
+
 export async function main(argv) {
-  const [cmd, ...rest] = argv
-  if (!cmd || cmd === '--help' || cmd === '-h') return help()
+  // Global flags (--home, --port) may come before the command, so find the
+  // first real command token instead of assuming position zero.
+  const at = argv.findIndex((a) => COMMANDS.has(a))
+  const [cmd, ...rest] = at === -1 ? argv : argv.slice(at)
+  if (cmd === '--help' || cmd === '-h') return help()
+  const home = flag(argv, '--home') ?? homeDir()
+
+  // Bare run (or flags only): boot the daemon and serve the UI.
+  if (!cmd || cmd.startsWith('-')) {
+    const port = parseInt(flag(argv, '--port') ?? '7777', 10)
+    if (Number.isNaN(port)) {
+      console.error('wayfind-one: invalid --port')
+      process.exitCode = 2
+      return
+    }
+    await upCommand({ port, topic: flag(argv, '--topic'), home })
+    return
+  }
 
   switch (cmd) {
     case 'init': {
@@ -47,7 +67,7 @@ export async function main(argv) {
         process.exitCode = 2
         return
       }
-      await initCommand({ team, force: rest.includes('--force'), home: homeDir() })
+      await initCommand({ team, force: rest.includes('--force'), home })
       return
     }
     case 'up': {
@@ -58,11 +78,11 @@ export async function main(argv) {
         process.exitCode = 2
         return
       }
-      await upCommand({ port, topic, home: homeDir() })
+      await upCommand({ port, topic, home })
       return
     }
     case 'invite':
-      await inviteCommand({ home: homeDir() })
+      await inviteCommand({ home })
       return
     case 'join': {
       const code = rest[0]
@@ -71,7 +91,7 @@ export async function main(argv) {
         process.exitCode = 2
         return
       }
-      await joinCommand({ code, home: homeDir() })
+      await joinCommand({ code, home })
       return
     }
     case 'bot':
