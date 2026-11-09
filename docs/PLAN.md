@@ -1,8 +1,16 @@
 # Wayfind ONE
 
-**One team. One private computer. One AI workspace. No central server.**
+**One team. Your computers. One private AI workspace.**
 
-Wayfind ONE is a CLI for enterprises and teams that handle sensitive data. It spins up isolated sandbox computers on your own machines, lets your whole team share them over encrypted peer-to-peer sync, and sends AI inference only to **NEAR AI Cloud**, where it runs inside verified Trusted Execution Environments (TEEs).
+Wayfind ONE is a peer-to-peer AI workspace for teams that need control over their data and AI workflows. Run isolated AI bot tasks across trusted team-owned computers, synchronize encrypted workspaces directly between teammates, and use NEAR AI Cloud for verifiable confidential inference.
+
+- **Distributed execution:** any eligible online team machine can execute bot tasks (v1: the bot owner's machine).
+- **Private conversations:** personal bot conversations stay private unless explicitly shared.
+- **Encrypted P2P collaboration:** synchronize team workspaces with no central server storing plaintext team data.
+- **Isolated execution:** bots run in Docker sandboxes, with optional Firecracker isolation on supported Linux machines.
+- **Confidential AI:** connect to NEAR AI Cloud and verify supported inference environments.
+
+Your team controls where work executes and who can access it.
 
 ---
 
@@ -18,6 +26,8 @@ Wayfind ONE is a CLI for enterprises and teams that handle sensitive data. It sp
 8. [Policy file](#policy-file)
 9. [Threat model](#threat-model)
 10. [Development guide](#development-guide)
+11. [Roadmap](#roadmap)
+12. [Limitations](#limitations)
 
 ---
 
@@ -25,7 +35,7 @@ Wayfind ONE is a CLI for enterprises and teams that handle sensitive data. It sp
 
 AI teammates are useful because they touch real data: invoices, bank exports, contracts, customer lists. Hosted agent platforms ask you to upload all of it to someone else's server. Many companies cannot do that.
 
-Wayfind ONE keeps the data with the team:
+Wayfind ONE keeps the data with the team. The core tension it resolves: coordinating shared work **without** turning every teammate's machine into an unrestricted reader of everyone else's data.
 
 | | Wayfind Cloud | **Wayfind ONE** |
 |---|---|---|
@@ -37,12 +47,22 @@ Wayfind ONE keeps the data with the team:
 
 ## Privacy model (read this first)
 
-We make a precise claim, not a magical one.
+We make a precise claim, not a magical one. The workspace has four data domains:
 
-**What stays private**
-- Team data, tasks, chat history and bot memory are **encrypted with a team key** and only synced between team members' machines.
-- The only network call that leaves your machines for AI is **inference to NEAR AI Cloud**, where models run in Intel TDX confidential VMs with NVIDIA TEE GPUs.
-- Wayfind ONE **verifies the attestation** and the response signatures before trusting a reply, and shows the result in the UI.
+| Data domain | Who sees it |
+|---|---|
+| Team workspace | Authorized team members (versioned team keys) |
+| Roster + group chat | Authorized team members (metadata only — IDs, names, capabilities, never prompts or secrets) |
+| Bot definitions + owner conversations | Conversation/bot owner only |
+| Task inputs | Sender + executor only, scoped to that task, short-lived |
+
+**Rules**
+
+- Private by default: a member must explicitly share a conversation or grant a bot's execution policy before another node sees their data.
+- No single permanent team key: keys are versioned and member-scoped from the start; removing a member rotates keys and revokes future access.
+- Revocation cannot erase files or plaintext a member already copied. We state this honestly.
+- An authorized executor necessarily processes the plaintext it needs, at least temporarily — private-by-default controls *who may become* an executor, not physics.
+- The only network call that leaves your machines for AI is **inference to NEAR AI Cloud**, where models run in Intel TDX confidential VMs with NVIDIA TEE GPUs. Wayfind ONE **verifies the attestation** and response signatures before trusting a reply.
 - API keys and other secrets live in the host process. **Sandboxes never see them.**
 
 **What is NOT protected**
@@ -60,19 +80,37 @@ We make a precise claim, not a magical one.
 ┌──────────────────────────────┐                ┌──────────────────────────────┐
 │ wayfind-one daemon           │                │ wayfind-one daemon           │
 │  ├─ Web UI  (localhost)      │                │  ├─ Web UI  (localhost)      │
-│  ├─ Team store (Hyperbee)    │◄── HyperDHT ──►│  ├─ Team store (Hyperbee)    │
-│  ├─ Task scheduler + claims  │  encrypted P2P │  ├─ Task scheduler + claims  │
-│  ├─ Policy engine + approvals│                │  ├─ Policy engine + approvals│
-│  ├─ Sandbox runner (Docker)  │                │  ├─ Sandbox runner (Docker)  │
+│  ├─ My bots (owner-private)  │                │  ├─ My bots (owner-private)  │
 │  │    └─ bot sandbox ─┐      │                │  │    └─ bot sandbox ─┐      │
 │  └─ Inference proxy ◄─┘      │                │  └─ Inference proxy ◄─┘      │
+│  ├─ Team store (Hyperbee)    │◄── HyperDHT ──►│  ├─ Team store (Hyperbee)    │
+│  ├─ Task coordinator + claims│  encrypted P2P │  ├─ Task coordinator + claims│
+│  ├─ Policy engine + approvals│                │  ├─ Policy engine + approvals│
+│  └─ Group chat + DMs ────────┼── roster ─────►│  └─ Group chat + DMs ────────│
 └───────────────┬──────────────┘                └──────────────┬───────────────┘
                 │  HTTPS + attestation verified                │
                 ▼                                              ▼
         NEAR AI Cloud (TEE inference, signed responses)
 ```
 
-**Rule of the design:** the sandbox can only talk to the inference proxy on the host. The proxy holds the key, checks attestation, applies policy, and logs every call.
+| Layer | Technology | Responsibility |
+|---|---|---|
+| CLI | Node.js | Initialization, joining, management |
+| Local daemon | Express | Local API, lifecycle, orchestration |
+| UI | React + Vite + Tailwind | Team and bot interface |
+| P2P connections | Hyperswarm | Encrypted peer connections |
+| Event storage | Hypercore | Append-only replicated events |
+| Multiwriter coordination | Autobase | Shared task and team state |
+| Structured views | Hyperbee | Queryable state |
+| File replication | Hyperdrive / Hypercore | Workspace file synchronization |
+| Sandbox | Docker (Firecracker optional) | Isolated bot execution |
+| AI inference | NEAR AI Cloud | Confidential remote inference |
+| Attestation | Official NEAR AI SDK | Verify model/runtime claims |
+
+**Rules of the design:**
+- Bots are **owned, not shared**: definitions, prompts and memory never leave the owner's machine. The team shares only the **roster** (bot IDs, names, owner, capabilities).
+- A group-chat mention or DM **routes to the owner node**, which executes and replies. v1 executes on the owner machine only; delegation to trusted nodes is a later, per-bot grant.
+- The sandbox can only talk to the inference proxy on the host. The proxy holds the key, checks attestation, applies policy, and logs every call. It is not a general tool gateway.
 
 ## Quick start
 
@@ -115,7 +153,7 @@ npx wayfind-one up
 | `wayfind-one invite` | Create a one-time invite code |
 | `wayfind-one join <code>` | Join a team from an invite |
 | `wayfind-one demo` | Interactive launcher: start or join a team, then open the web UI *(planned)* |
-| `wayfind-one bot create <name> --role <role>` | Create a bot *(planned)* |
+| `wayfind-one bot create <name> --role <role>` | Create a bot on this machine (owner-private) *(planned)* |
 | `wayfind-one verify` | NEAR AI attestation check *(planned)* |
 | `wayfind-one doctor` | Connectivity diagnostics *(planned)* |
 
@@ -126,10 +164,13 @@ npx wayfind-one up
 | **Team** (built) | A set of members sharing one encrypted store, identified by a team key |
 | **Node** (built) | One running daemon on one machine. Has its own identity key |
 | **Invite** (built) | A one-time code carrying the team secrets; spent on first redeem |
-| **Bot** (planned) | An AI teammate: role prompt, memory, allowed tools, policy |
+| **Bot** (planned) | An AI teammate: role prompt, memory, allowed tools, policy. **Owned, not shared** — lives only on the owner's machine |
+| **Roster** (planned) | Shared directory of member and bot IDs, display names, owners, capabilities. Metadata only |
+| **Group chat** (planned) | Team-visible channel; @-mentioning a bot routes the task to its owner |
+| **DM** (planned) | Member-to-bot task; visible to sender + executing owner only |
 | **Sandbox** (planned) | A Docker container where a bot's tools and code run, with no direct internet |
-| **Task** (planned) | A unit of work for a bot, stored in the shared log |
-| **Claim** (planned) | A node's record that it is running a task (prevents duplicate runs) |
+| **Task** (planned) | A unit of work for a bot: unique IDs, encrypted payload, execution requirements |
+| **Claim** (planned) | A node's execution record: execution ID, lease, fencing generation (no exactly-once — duplicates possible, side effects must be idempotent, sensitive actions need approval) |
 | **Policy** (planned) | Rules for spending, tools, egress and approvals |
 | **Approval** (planned) | A teammate's sign-off required before a sensitive action |
 
@@ -148,24 +189,28 @@ Suggested key layout in the shared store:
 ```
 team/meta                  team name, created-at, policy version
 members/<nodeId>           public key, display name, role, status
-bots/<botId>               role, tool list, policy ref
-tasks/<taskId>             description, bot, status, created-by
-claims/<taskId>            nodeId, lease-expires-at
+roster/<botId>             display name, owner nodeId, capabilities (metadata only)
+tasks/<taskId>             bot, status, created-by, encrypted payload ref
+claims/<taskId>            executionId, fencing generation, lease-expires-at
 approvals/<approvalId>     task, action, requested-by, decisions[]
 audit/<seq>                append-only event log
 policy                     team policy (versioned)
 ```
 
+**Bot definitions are NOT in the shared store.** Prompts, memory and secrets stay on the owner's machine; only the roster entry replicates.
+
 **Encryption.** Transport is already encrypted by HyperDHT. In addition, encrypt every stored value with the team key (for example XChaCha20-Poly1305 via libsodium) so a stray peer or backup never holds plaintext.
 
-**Invites.** An invite contains the swarm topic and the team key wrapped for a one-time use. After a successful join, mark the invite as spent in the store.
+**Invites.** An invite is a one-time code carrying the team secrets. The joiner derives the swarm topic, finds the inviter over the DHT, and redeems the code — the inviter's local ledger marks the nonce spent on first use. The inviter must be online when redeemed.
 
 **Task claiming (no double runs).**
-1. A node appends `claims/<taskId>` with a lease (e.g. 60 s).
-2. After Autobase orders writes, the first claim wins. Other nodes back off.
-3. The owner renews the lease with a heartbeat. If it expires, another node may claim.
+1. A member mentions a roster bot (group chat) or DMs it: a task record with unique task ID, bot ID, owner, execution requirements and encrypted payload enters the shared queue.
+2. The owner node checks eligibility (allowed to run that bot, has resources, can access the authorized data) and appends `claims/<taskId>` with an execution ID, fencing generation and lease (e.g. 60 s).
+3. After Autobase orders writes, deterministic conflict resolution picks the winner; losers back off. Stale workers with old fencing generations cannot continue as valid owners.
+4. The winner runs the bot in a sandbox with only the task-authorized data, calls NEAR AI through the local inference proxy, and replicates the encrypted result. External side effects use idempotency keys; sensitive actions require approval.
+5. Leases renew on heartbeat; on expiry or disconnect another eligible node may claim (v1: the owner's other devices; delegation to trusted nodes later, per-bot grant).
 
-**Known gap:** removing a member means rotating the team key and re-encrypting. For the hackathon, document this as roadmap and say so plainly.
+**Known gap:** removing a member means rotating the team key and re-encrypting. Tracked in the [roadmap](#roadmap); stated plainly.
 
 ### 2. Sandbox runner
 
@@ -209,7 +254,8 @@ Every tool call a bot makes passes the policy engine first. Sensitive actions cr
 
 Served by the daemon on localhost. Built: **Team** (members, online status, peers). Planned:
 
-- **Bots:** list, create, role and tools
+- **Group chat + DMs:** team channel, @-mentions routed to bot owners, member-to-bot DMs
+- **Bots:** list roster bots, create owner-local bots, role and tools
 - **Tasks:** create, status, who is running it
 - **Approvals:** pending, approve/reject, history
 - **Privacy:** attestation status, last verification time, "verify now" button, per-reply proof
@@ -217,29 +263,46 @@ Served by the daemon on localhost. Built: **Team** (members, online status, peer
 
 ## Policy file
 
-`policy.yaml`, stored in the shared team store and versioned.
+`policy.yaml`, stored in the shared team store and versioned. Execution policy and conversation visibility are separate: a bot can be executable by trusted nodes without exposing its owner's history.
 
 ```yaml
 version: 1
 
-inference:
-  provider: near-ai-cloud
-  allowed_models: ["<model-id>"]
-  require_attestation: true
-  max_tokens_per_task: 20000
+defaults:
+  filesystem: deny
+  network: deny
+  unknown_tools: deny
 
-egress:
-  allow: []            # sandboxes reach only the inference proxy by default
+bots:
+  finance:
+    execution:
+      allowed_nodes: ["owner-devices"]   # later: + "trusted-team-nodes" per-bot grant
+      delegation: []                      # planned extension point
 
-spend:                 # for bots that can prepare payments
-  max_per_tx_usd: 50
-  max_per_day_usd: 200
+    files:
+      read:
+        - "finance/invoices/**"
+        - "finance/receipts/**"
+      write:
+        - "finance/reports/**"
 
-approvals:
-  require_for: [payment, send_email, publish, delete_data]
-  approvers_needed: 1
-  expires_after_minutes: 60
+    tools:
+      allow:
+        - read_file
+        - write_file
+        - search
+
+    network:
+      allow:
+        - near-ai
+
+    approvals:
+      require_for:
+        - send_email
+        - delete_file
 ```
+
+The runtime enforces permissions independently of model instructions. Illustrative format — enforcement implementation comes with the sandbox + policy engine.
 
 ## Threat model
 
@@ -252,7 +315,10 @@ approvals:
 | Malicious tool or code in sandbox | Container isolation, no direct internet, resource limits | Container escape (use Firecracker for more) | 🔶 planned |
 | Stolen laptop of a teammate | Local store encryption, team key rotation | Neither built yet — plaintext store on disk today | 🔶 gap |
 | Removed member keeps old key | Key rotation | Real gap today | 🔶 roadmap |
-| Two nodes run the same task | Claims with leases | Brief overlap on lease expiry | 🔶 planned |
+| Two nodes run the same task | Claims with leases, fencing, idempotency | Duplicates possible — no exactly-once; approvals gate sensitive actions | 🔶 planned |
+| Bot impersonation in group chat | Bot IDs bound to owner identity keys | Spoofed roster entries rejected on signature | 🔶 planned |
+| DM spam to someone's bot | Owner revokes a member's access to that bot | Per-bot block list, enforced by owner node | 🔶 planned |
+| Roster leaks bot capabilities | Roster carries metadata only, never prompts/secrets | Capability names still visible to all members | 🔶 planned |
 
 ## Development guide
 
@@ -302,6 +368,47 @@ WAYFIND_HOME=.node-b npx wayfind-one up --port 7778
 - Every feature that touches privacy gets a line in the threat model.
 - Never log prompts, secrets or file contents by default. Log metadata only.
 - Default to safe: attestation required, egress closed, approvals on.
+- Keep the inference proxy a pure inference path — never a general tool gateway.
+
+## Roadmap
+
+### Phase 1 — Working foundation (built)
+- CLI initialization and local daemon
+- Team identity and invite/join flow
+- P2P peer discovery and encrypted connections
+- Team page with peers + presence
+
+### Phase 2 — Distributed execution
+- Hypercore event storage + Autobase team coordination (shared roster, task queue)
+- Owner-local bots + sandbox runner (Docker)
+- Group chat + DMs routed to owner nodes
+- Task claiming: execution IDs, leases, fencing, idempotency, recovery after disconnect
+
+### Phase 3 — Private AI
+- NEAR AI inference proxy (official SDK), model/response verification, verified badge
+- Scoped sandbox-to-inference communication
+- Private conversation encryption + task-specific context access
+
+### Phase 4 — Team experience
+- Bot creation and management UI
+- Member and device management, permission + approval interface
+- Workspace file synchronization (Hyperdrive/Hypercore)
+- Optional relay connectivity, `doctor`
+
+### Phase 5 — Hardening
+- Member removal and key rotation, audit events
+- Firecracker on Linux/KVM, security testing
+- Per-bot delegation to trusted team nodes
+
+**Acceptance test (two machines):** A creates a team + bot → B joins via invite → A submits a task → B DMs A's bot (or @-mentions it) → owner node executes in a sandbox → result syncs back → A's private history stays invisible to B → inference verified through NEAR AI.
+
+## Limitations
+
+- Connectivity: DHT discovery can take ~10–60 s; strict NATs may need the planned relay.
+- Execution trust: the owner machine sees task inputs; a compromised owner host breaks that bot's privacy.
+- Revocation: removing a member rotates keys but cannot erase already-copied data.
+- No exactly-once execution: partitions or crashes can duplicate attempts — idempotency keys + approvals mitigate, not eliminate.
+- Sandboxes are containers, not TEEs: root on the host can read sandbox memory.
 
 ## License
 
