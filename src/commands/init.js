@@ -23,5 +23,5 @@ export async function initCommand({ team, force, home }) {
   console.log(`node identity: ${id.identityPublicKey.slice(0, 16)}…`)
   console.log(`topic: ${topic}`)
   console.log(`\nnext: wayfind-one up --port 7777`)
-  console.log(`peer with the same team: copy this WAYFIND_HOME, or use --topic ${topic} (invites land in Phase 2)`)
+  console.log(`then share access: wayfind-one invite (inviter must stay online for redeem)`)
 }

@@ -6,7 +6,7 @@ import { inviteCommand } from './commands/invite.js'
 import { joinCommand } from './commands/join.js'
 
 function notYet(cmd) {
-  console.error(`wayfind-one: '${cmd}' is not implemented yet (Phase 1: init/up only)`)
+  console.error(`wayfind-one: '${cmd}' is not implemented yet`)
   process.exitCode = 2
 }
 

@@ -1,43 +1,20 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import Login from './pages/Login'
-import AppLayout from './app/AppLayout'
-import Tasks from './app/pages/Tasks'
-import DocsLayout from './docs/DocsLayout'
-import DocsIntro from './docs/pages/Intro'
-import DocsQuickstart from './docs/pages/Quickstart'
-import DocsCli from './docs/pages/Cli'
-import DocsP2p from './docs/pages/P2p'
-import DocsSandbox from './docs/pages/Sandbox'
-import DocsInference from './docs/pages/Inference'
-import DocsPolicy from './docs/pages/Policy'
-import DocsBots from './docs/pages/BotsTasks'
-import DocsPrivacy from './docs/pages/Privacy'
-import DocsChangelog from './docs/pages/Changelog'
-import './App.css'
-
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/app" element={<AppLayout />}>
-          <Route index element={<Navigate to="tasks" replace />} />
-          <Route path="tasks" element={<Tasks />} />
-        </Route>
-        <Route path="/docs" element={<DocsLayout />}>
-          <Route index element={<DocsIntro />} />
-          <Route path="quickstart" element={<DocsQuickstart />} />
-          <Route path="cli" element={<DocsCli />} />
-          <Route path="p2p" element={<DocsP2p />} />
-          <Route path="sandbox" element={<DocsSandbox />} />
-          <Route path="inference" element={<DocsInference />} />
-          <Route path="policy" element={<DocsPolicy />} />
-          <Route path="bots-tasks" element={<DocsBots />} />
-          <Route path="privacy" element={<DocsPrivacy />} />
-          <Route path="changelog" element={<DocsChangelog />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <main
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'system-ui, sans-serif',
+        background: '#0a0a0b',
+        color: '#fafafa',
+      }}
+    >
+      <div style={{ textAlign: 'center' }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 800 }}>Wayfind ONE</h1>
+        <p style={{ opacity: 0.6 }}>UI placeholder — being rewritten.</p>
+      </div>
+    </main>
   )
 }

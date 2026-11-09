@@ -131,7 +131,10 @@ export class TeamSwarm {
       return
     }
     const peer = this.peers.get(remoteId)
-    if (!peer) return
+    if (!peer) {
+      if (process.env.WAYFIND_DEBUG) console.error(`[debug] no-peer for ${msg.type}`)
+      return
+    }
     // Scope connections to the current topic: dials from ex-members arrive
     // at the swarm server even after topics change — drop them on mismatch.
     if (msg.topic !== undefined && msg.topic !== this.topic) {
@@ -175,6 +178,7 @@ export class TeamSwarm {
 
   _send(conn, obj) {
     try {
+      if (process.env.WAYFIND_DEBUG) console.error(`[debug] send ${obj.type}`)
       conn.write(JSON.stringify(obj) + '\n')
     } catch {
       /* peer going away */

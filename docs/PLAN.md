@@ -4,9 +4,6 @@
 
 Wayfind ONE is a CLI for enterprises and teams that handle sensitive data. It spins up isolated sandbox computers on your own machines, lets your whole team share them over encrypted peer-to-peer sync, and sends AI inference only to **NEAR AI Cloud**, where it runs inside verified Trusted Execution Environments (TEEs).
 
-> Built for **NEAR HACKATHON 2026** · Tracks: **Privacy & Private AI** + **AI Security & Defense**
-> Status: hackathon prototype. Commands marked *(planned)* are not built yet. See [Roadmap](#roadmap).
-
 ---
 
 ## Contents
@@ -21,11 +18,6 @@ Wayfind ONE is a CLI for enterprises and teams that handle sensitive data. It sp
 8. [Policy file](#policy-file)
 9. [Threat model](#threat-model)
 10. [Development guide](#development-guide)
-11. [Build plan (6 to 14 Nov)](#build-plan-6-to-14-nov)
-12. [Demo script](#demo-script)
-13. [Submission checklist](#submission-checklist)
-14. [Roadmap](#roadmap)
-15. [Relationship to Wayfind Cloud](#relationship-to-wayfind-cloud)
 
 ---
 
@@ -61,6 +53,8 @@ We make a precise claim, not a magical one.
 
 ## Architecture
 
+> Target architecture. **Built today:** daemon, P2P swarm (discovery + invites), web UI shell + Team page. **Planned:** team store, claims, policy engine, sandbox runner, inference proxy.
+
 ```
  Teammate A (laptop)                              Teammate B (laptop / VPS)
 ┌──────────────────────────────┐                ┌──────────────────────────────┐
@@ -82,12 +76,17 @@ We make a precise claim, not a magical one.
 
 ## Quick start
 
-> Target experience (one command, Docker default). *(planned)*
+**Requirements:** Node.js 20+.
 
-**Requirements**
-- Node.js 20+
-- Docker (Docker Desktop on macOS/Windows)
-- A NEAR AI Cloud API key from <https://cloud.near.ai>
+**For judges — one command, launcher walks you through the rest**
+
+```bash
+npx wayfind-one demo
+```
+
+The launcher asks a single question — **start a team** (you pick the team name) or **join a team** (you paste an invite code) — then runs the daemon and opens the web UI at `http://localhost:7777`. Everything else happens on the website: team status, peers, and (as they land) tasks, bots and approvals.
+
+**Manual path** (exactly what the launcher does under the hood)
 
 ```bash
 # 1. Start your first node and create a team
@@ -105,12 +104,6 @@ npx wayfind-one join <invite-code>
 npx wayfind-one up
 ```
 
-**Try it without any setup (demo mode, for reviewers)**
-```bash
-npx wayfind-one demo
-```
-Runs two simulated nodes on your machine, a sample bot task, an attestation check and an approval prompt. Uses a recorded NEAR AI response if no API key is present, clearly labelled as such in the UI.
-
 ## CLI reference
 
 *(planned surface, keep it small)*
@@ -118,32 +111,35 @@ Runs two simulated nodes on your machine, a sample bot task, an attestation chec
 | Command | What it does |
 |---|---|
 | `wayfind-one init --team <name>` | Create node identity, team key and local store |
-| `wayfind-one up [--port 7777] [--headless]` | Start daemon, web UI and P2P. `--headless` skips the UI (for VPS nodes) |
+| `wayfind-one up [--port 7777]` | Start daemon, web UI and P2P |
 | `wayfind-one invite` | Create a one-time invite code |
 | `wayfind-one join <code>` | Join a team from an invite |
-| `wayfind-one bot create <name> --role <role>` | Create a bot with a role prompt and policy |
-| `wayfind-one verify` | Run a full NEAR AI attestation check and print the result |
-| `wayfind-one doctor` | Check Docker, network, key and peer connectivity |
-| `wayfind-one demo` | Run the self-contained demo |
+| `wayfind-one demo` | Interactive launcher: start or join a team, then open the web UI *(planned)* |
+| `wayfind-one bot create <name> --role <role>` | Create a bot *(planned)* |
+| `wayfind-one verify` | NEAR AI attestation check *(planned)* |
+| `wayfind-one doctor` | Connectivity diagnostics *(planned)* |
 
 ## Core concepts
 
 | Concept | Meaning |
 |---|---|
-| **Team** | A set of members sharing one encrypted store, identified by a team key |
-| **Node** | One running daemon on one machine. Has its own identity key |
-| **Bot** | An AI teammate: role prompt, memory, allowed tools, policy |
-| **Sandbox** | A Docker container where a bot's tools and code run, with no direct internet |
-| **Task** | A unit of work for a bot, stored in the shared log |
-| **Claim** | A node's record that it is running a task (prevents duplicate runs) |
-| **Policy** | Rules for spending, tools, egress and approvals |
-| **Approval** | A teammate's sign-off required before a sensitive action |
+| **Team** (built) | A set of members sharing one encrypted store, identified by a team key |
+| **Node** (built) | One running daemon on one machine. Has its own identity key |
+| **Invite** (built) | A one-time code carrying the team secrets; spent on first redeem |
+| **Bot** (planned) | An AI teammate: role prompt, memory, allowed tools, policy |
+| **Sandbox** (planned) | A Docker container where a bot's tools and code run, with no direct internet |
+| **Task** (planned) | A unit of work for a bot, stored in the shared log |
+| **Claim** (planned) | A node's record that it is running a task (prevents duplicate runs) |
+| **Policy** (planned) | Rules for spending, tools, egress and approvals |
+| **Approval** (planned) | A teammate's sign-off required before a sensitive action |
 
 ## Components in detail
 
 ### 1. P2P layer and team store
 
 Stack (Holepunch): **Hyperswarm / HyperDHT** for peer discovery and encrypted connections, **Hypercore + Autobase** for multi-writer append-only logs, **Hyperbee** for key-value views.
+
+> Built: control swarm + single-use invite redeem. Next on this stack: shared team store, then task claims.
 
 > Verify current APIs against the Holepunch docs before coding. This README describes intent, not exact calls.
 
@@ -211,9 +207,8 @@ Every tool call a bot makes passes the policy engine first. Sensitive actions cr
 
 ### 5. Web UI
 
-Served by the daemon on localhost. Minimum pages:
+Served by the daemon on localhost. Built: **Team** (members, online status, peers). Planned:
 
-- **Team:** members, online status, invite button
 - **Bots:** list, create, role and tools
 - **Tasks:** create, status, who is running it
 - **Approvals:** pending, approve/reject, history
@@ -248,45 +243,39 @@ approvals:
 
 ## Threat model
 
-| Threat | Mitigation | Remaining risk |
-|---|---|---|
-| Central server compromise | There is no central server | None for this layer |
-| Network eavesdropping | HyperDHT encrypted channels, HTTPS to NEAR AI | Metadata (who connects to whom) |
-| Inference provider sees prompts | TEE inference with verified attestation | Trust in Intel/NVIDIA hardware |
-| Prompt injection makes a bot leak or spend | No secrets in sandbox, egress allow-list, approvals, spend limits | A bot can still be tricked inside its allowed scope |
-| Malicious tool or code in sandbox | Container isolation, no direct internet, resource limits | Container escape (use Firecracker for more) |
-| Stolen laptop of a teammate | Disk encryption, local store encrypted | Team key rotation is manual for now |
-| Removed member keeps old key | Roadmap: key rotation | Real gap today |
-| Two nodes run the same task | Claims with leases | Brief overlap on lease expiry |
+| Threat | Mitigation | Remaining risk | Status |
+|---|---|---|---|
+| Central server compromise | There is no central server | None for this layer | ✅ built |
+| Network eavesdropping | HyperDHT encrypted channels | Metadata (who connects to whom) | ✅ built |
+| Inference provider sees prompts | TEE inference with verified attestation | Trust in Intel/NVIDIA hardware | 🔶 planned (no proxy yet) |
+| Prompt injection makes a bot leak or spend | No secrets in sandbox, egress allow-list, approvals, spend limits | A bot can still be tricked inside its allowed scope | 🔶 planned |
+| Malicious tool or code in sandbox | Container isolation, no direct internet, resource limits | Container escape (use Firecracker for more) | 🔶 planned |
+| Stolen laptop of a teammate | Local store encryption, team key rotation | Neither built yet — plaintext store on disk today | 🔶 gap |
+| Removed member keeps old key | Key rotation | Real gap today | 🔶 roadmap |
+| Two nodes run the same task | Claims with leases | Brief overlap on lease expiry | 🔶 planned |
 
 ## Development guide
 
-**Suggested stack**
-- TypeScript on Node.js 20+ (fits the Holepunch ecosystem)
-- `hyperswarm`, `hypercore`, `autobase`, `hyperbee` for P2P
-- `dockerode` for sandboxes
-- `fastify` for the daemon API and a small Vite + React UI (or plain HTML to save time)
-- `sodium-universal` for encryption
-- `vitest` for tests
+**Stack (what this repo actually uses)**
+- JavaScript on Node.js 20+
+- `hyperswarm`, `hypercore-crypto`, `keet-identity-key`, `z32` for P2P + identity
+- `express` for the daemon API, Vite + React + Tailwind for the UI
+- `oxlint` for linting (`npm run lint`)
+- Next up on this stack: `hypercore` task logs, then `autobase` + `hyperbee` for claims and the team store
 
-**Proposed repo layout**
+**Repo layout**
 
 ```
 wayfind-one/
-├─ README.md
 ├─ package.json
+├─ bin/wayfind-one.js
 ├─ src/
-│  ├─ cli/            # commands: init, up, invite, join, verify, doctor, demo
-│  ├─ daemon/         # server, lifecycle, config
-│  ├─ p2p/            # swarm, store, invites, claims, crypto
-│  ├─ sandbox/        # docker runner, network, limits
-│  ├─ inference/      # proxy, near-ai client, attestation verifier
-│  ├─ policy/         # schema, evaluator, approvals
-│  └─ bots/           # agent loop, tools
-├─ ui/                # web UI
-├─ demo/              # recorded responses, sample files, scripts
-├─ docs/              # architecture, threat model, notes
-└─ tests/
+│  ├─ cli.js            # commands: init, up, invite, join (+ bot, verify, doctor, demo placeholders)
+│  ├─ commands/         # one file per command
+│  ├─ p2p/              # identity, swarm, invites
+│  └─ daemon/           # express server, lifecycle
+├─ frontend/            # Vite + React UI (landing, /app, /docs)
+└─ docs/                # PLAN.md (this file)
 ```
 
 **Local development**
@@ -295,9 +284,10 @@ wayfind-one/
 git clone <this-repo>
 cd wayfind-one
 npm install
-cp .env.example .env          # add NEAR_AI_API_KEY
-npm run dev                   # daemon + UI with reload
-npm test
+node bin/wayfind-one.js init --team "Acme Finance"
+WAYFIND_HOME=.node-a node bin/wayfind-one.js up --port 7777
+npm run lint
+npm run build --prefix frontend
 ```
 
 **Testing P2P on one machine:** run two nodes with different data directories and ports.
@@ -313,71 +303,9 @@ WAYFIND_HOME=.node-b npx wayfind-one up --port 7778
 - Never log prompts, secrets or file contents by default. Log metadata only.
 - Default to safe: attestation required, egress closed, approvals on.
 
-## Build plan (6 to 14 Nov)
-
-Development ends **14 Nov 2026, 23:59 UTC**. Cut scope early.
-
-- [ ] **6 to 7 Nov:** repo, CLI skeleton, daemon, local web UI shell, `init` and `up`
-- [ ] **7 to 8 Nov:** P2P store between two nodes, `invite` / `join`, shared task list synced
-- [ ] **9 to 10 Nov:** Docker sandbox runner, inference proxy calling NEAR AI, one bot answering a task
-- [ ] **11 Nov:** attestation verification and the verified badge in the UI
-- [ ] **12 Nov:** policy engine, approvals, spend limit
-- [ ] **13 Nov:** demo mode, README polish, error handling, record demo video
-- [ ] **14 Nov:** final checks, publish repo, post on X, submit form (before 23:59 UTC)
-
-**Cut list if time runs short:** Firecracker, key rotation, headless mode, multiple bots per team, fancy UI.
-
-## Demo script
-
-**Scenario: private expense reconciliation between two teammates.**
-
-1. Node A and Node B are on different machines, joined to one team.
-2. A uploads a bank export and a folder of receipts (they never leave the team's machines).
-3. A creates a task: "Match bank transactions with receipts and list what's missing."
-4. Node B claims it and runs the bot in a Docker sandbox. UI shows who is running it.
-5. The bot calls the model through the inference proxy. UI shows the **verified TEE badge** and the attestation details.
-6. The bot proposes a payment for a missing invoice. Policy requires approval, and the request appears on A's screen.
-7. A approves. The audit log shows the call, the attestation result and the approval.
-8. Show the proof: network view with no connection except NEAR AI Cloud, and the sandbox with no direct internet.
-
-Keep the video under two minutes.
-
-## Submission checklist
-
-- [ ] Public GitHub repo (judges cannot open private repos)
-- [ ] README clearly says what was built during the hackathon and what is reused (see below)
-- [ ] Runs from a fresh machine with `npx wayfind-one demo`
-- [ ] Demo post on X: say you built it at NEAR HACKATHON, tag **@NEARProtocol** and **#NEARHackathon**, attach video or screenshots
-- [ ] Submit the form with **both** the repo link and the demo post link
-- [ ] Select both tracks: **Privacy & Private AI** and **AI Security & Defense**
-- [ ] Wallet address for prizes entered correctly
-
-Judging note: projects are first screened by automated agents that check the project runs and matches the README, then reviewed by human judges. Keep install simple and the README accurate.
-
-## Roadmap
-
-**Now (hackathon):** P2P team store, Docker sandboxes, NEAR AI proxy with attestation, policy and approvals, web UI.
-
-**Next:**
-- Member removal with team key rotation
-- Headless nodes for 24/7 bots on a VPS
-- Run a node inside a TEE for end-to-end confidential execution
-- Firecracker sandboxes on Linux
-- NEAR Intents / stablecoin payment tools with on-chain approval rules
-- Desktop app wrapper and a download page on the Wayfind site
-- SSO and audit export for enterprise use
-
-## Relationship to Wayfind Cloud
-
-Wayfind Cloud is the hosted product from Tamago Labs. **Wayfind ONE** is a separate, self-hosted, P2P product built for this hackathon.
-
-- **New for this hackathon:** everything in this repository (CLI, P2P layer, sandbox runner, inference proxy, attestation verifier, policy engine, UI).
-- **Reused ideas, not code:** the "AI teammates / Bots" concept and use cases from Wayfind Cloud.
-- If any code is reused from other repos, list it here with its license: `[TODO]`
-
 ## License
 
-`[TODO: choose a license, e.g. MIT or Apache-2.0]`
+Apache-2.0 (see `package.json`).
 
 ## Links
 

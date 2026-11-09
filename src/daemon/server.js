@@ -7,7 +7,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const publicDir = path.join(here, '..', '..', 'frontend', 'dist')
 
 // Metadata only — never secrets, prompts, or team keys.
-export function startServer({ port, swarm, team, identityPublicKey, tasks }) {
+export function startServer({ port, swarm, team, identityPublicKey }) {
   const app = express()
   app.use(express.json())
 
@@ -35,34 +35,6 @@ export function startServer({ port, swarm, team, identityPublicKey, tasks }) {
       res.json({ ok: true, ...swarm.status() })
     } catch (err) {
       res.status(500).json({ ok: false, error: String(err?.message ?? err) })
-    }
-  })
-
-  app.get('/api/tasks', async (req, res) => {
-    try {
-      res.json({ tasks: tasks ? await tasks.list() : [] })
-    } catch (err) {
-      res.status(500).json({ ok: false, error: String(err?.message ?? err) })
-    }
-  })
-
-  app.post('/api/tasks', async (req, res) => {
-    try {
-      const text = (req.body?.text ?? '').toString().trim()
-      if (!text) return void res.status(400).json({ ok: false, error: 'text is required' })
-      const entry = await tasks.add(text)
-      res.json({ ok: true, task: entry })
-    } catch (err) {
-      res.status(500).json({ ok: false, error: String(err?.message ?? err) })
-    }
-  })
-
-  app.post('/api/tasks/:id/toggle', async (req, res) => {
-    try {
-      const entry = await tasks.toggle(req.params.id)
-      res.json({ ok: true, task: entry })
-    } catch (err) {
-      res.status(404).json({ ok: false, error: String(err?.message ?? err) })
     }
   })
 

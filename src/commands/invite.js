@@ -12,6 +12,7 @@ export async function inviteCommand({ home }) {
   }
   const team = JSON.parse(fs.readFileSync(teamFile, 'utf8'))
   const id = await loadOrCreateIdentity(home)
+
   const { code } = createInvite(home, team, id.identityPublicKey)
 
   console.log(code)
