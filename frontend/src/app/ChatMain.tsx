@@ -10,12 +10,14 @@ interface Props {
   bot: Bot | null
   panelOpen: boolean
   onOpenPanel: () => void
+  onOpenSettings: () => void
   onSend: (text: string) => Promise<boolean>
 }
 
-export default function ChatMain({ status, bot, panelOpen, onOpenPanel, onSend }: Props) {
+export default function ChatMain({ status, bot, panelOpen, onOpenPanel, onOpenSettings, onSend }: Props) {
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
+  const [pendingText, setPendingText] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
 
   // New bot selected: fresh composer.
@@ -23,6 +25,7 @@ export default function ChatMain({ status, bot, panelOpen, onOpenPanel, onSend }
   if (bot?.id !== draftFor) {
     setDraftFor(bot?.id)
     setDraft('')
+    setPendingText(null)
     setSendError(null)
   }
 
@@ -30,10 +33,12 @@ export default function ChatMain({ status, bot, panelOpen, onOpenPanel, onSend }
     const v = draft.trim()
     if (!v || pending || !bot) return
     setPending(true)
+    setPendingText(v)
     setSendError(null)
     setDraft('')
     const ok = await onSend(v)
     setPending(false)
+    setPendingText(null)
     if (!ok) setSendError('That run failed — try again.')
   }
   if (!status) {
@@ -105,7 +110,17 @@ export default function ChatMain({ status, bot, panelOpen, onOpenPanel, onSend }
       </header>
 
       <ComputerBanner state={status.computer?.state} error={status.computer?.error} />
-      <Thread bot={bot} typing={pending} />
+      {status.provider && (!status.provider.model || !status.provider.hasKey) && (
+        <div className="mx-4 mb-1 flex items-center justify-center">
+          <button
+            onClick={onOpenSettings}
+            className="rounded-full bg-bamber/25 px-4 py-1.5 text-xs font-bold text-navy hover:bg-bamber/40"
+          >
+            No AI provider configured — open Settings → AI to set one up.
+          </button>
+        </div>
+      )}
+      <Thread bot={bot} typing={pending} pendingUser={pendingText} />
       <Composer botName={bot.name} draft={draft} onDraft={setDraft} onSend={() => void send()} busy={pending} />
       {sendError && (
         <p className="mx-auto w-full max-w-2xl px-6 pb-4 text-center text-sm font-medium text-bcoral">{sendError}</p>

@@ -46,11 +46,18 @@ export async function upCommand({ port, topic, home }) {
         this.store ? this.store.members().catch(() => []) : [],
         this.store ? this.store.invites().catch(() => []) : []
       ])
+      let provider = null
+      try {
+        const { resolveProvider } = await import('../inference.js')
+        const prov = await resolveProvider({ home: this.base, store: this.store })
+        provider = { provider: prov.id, model: prov.model, hasKey: !!prov.apiKey }
+      } catch { /* unconfigured */ }
       return {
         team: { name: this.team.teamName, id: this.team.teamId },
         nodeId: this.nodeId,
         ...this.swarm.status(),
         computer: this.computerStatus(),
+        provider,
         store: { writable: this.store?.writable ?? false },
         members,
         invites,
@@ -256,10 +263,66 @@ export async function upCommand({ port, topic, home }) {
       if (busyBots.has(id)) throw new Error('bot is busy')
       busyBots.add(id)
       try {
-        return await runTurn({ teamDir: this.teamHome, nodeId: this.nodeId, botId: id, text })
+        return await runTurn({ teamDir: this.teamHome, nodeId: this.nodeId, botId: id, text, store: this.store, home: this.base })
       } finally {
         busyBots.delete(id)
       }
+    },
+
+    // Provider selection + shared keys. GET never returns key values.
+    async providers() {
+      if (!this.store) throw new Error('no active team')
+      const { resolveProvider } = await import('../inference.js')
+      const prov = await resolveProvider({ home: this.base, store: this.store })
+      const keys = await this.store.providerKeys().catch(() => [])
+      return {
+        ok: true,
+        selected: { provider: prov.id, model: prov.model, label: prov.label, baseURL: prov.baseURL, keyEnv: prov.keyEnv },
+        catalog: prov.catalog,
+        keysPresent: keys.map((k) => k.id),
+        keySource: prov.keySource,
+        sources: prov.sources
+      }
+    },
+    async selectProvider(provider, model) {
+      if (!this.team || !this.teamHome || !this.store) throw new Error('no active team')
+      if (!this.store.writable) throw new Error('not a writer yet — wait for sync')
+      await this.store.appendProviderConfig(provider, model)
+      return this.providers()
+    },
+
+    async shareProviderKey(id, key) {
+      if (!this.team || !this.teamHome || !this.store) throw new Error('no active team')
+      if (!this.store.writable) throw new Error('not a writer yet — wait for sync')
+      const v = String(key ?? '')
+      if (!v) throw new Error('key is required')
+      await this.store.appendProviderKey(String(id), v)
+      return this.providers()
+    },
+
+    async testProvider(override) {
+      if (!this.team || !this.teamHome || !this.nodeId || !this.store) throw new Error('no active team')
+      const { resolveProvider, chatReply } = await import('../inference.js')
+      const base = await resolveProvider({ home: this.base, store: this.store })
+      // Test-before-save: explicit fields preview without touching the
+      // shared selection. Key still resolves env > local > shared.
+      const model = override?.model || base.model
+      const entry = override?.provider && override.provider !== base.id
+        ? (base.catalog.providers?.[override.provider] ?? null)
+        : null
+      const id = entry ? String(override.provider) : base.id
+      const baseURL = entry?.baseURL ?? base.baseURL
+      const apiKey = base.apiKey
+      if (!model) throw new Error('no model selected')
+      if (!apiKey) throw new Error(`no API key for ${entry?.label ?? base.label}`)
+      const { text } = await chatReply({
+        baseURL,
+        apiKey,
+        model,
+        system: 'You are a connection test. Follow the instruction exactly.',
+        messages: [{ role: 'user', text: 'Reply with exactly: ok' }]
+      })
+      return { ok: true, text, provider: id, model }
     }
   }
 

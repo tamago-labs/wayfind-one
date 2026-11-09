@@ -2,13 +2,25 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const run = promisify(execFile)
+const here = path.dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = path.resolve(here, '..')
 
 // Local "computer": one persistent container per node. Tool execution only —
 // conversation, bot config, and keys stay at the host (daemon files) and
-// never enter the container. Network is off by default.
-export const IMAGE = process.env.WAYFIND_IMAGE ?? 'ubuntu:24.04'
+// never enter the container.
+//
+// Image is our own (docker/Dockerfile, built once on first boot): Ubuntu
+// userland with python3 + curl + git, because offline-minimal bases leave
+// agents without the tools they reach for. Network is ON (bridge): unlike
+// offline-analysis sandboxes, our tools legitimately need egress (package
+// installs, API calls, git). Host isolation comes from namespaces + mounts
+// (only the workspace is shared), not from blocking the network.
+// Set WAYFIND_NO_NETWORK=1 to restore --network none.
+export const IMAGE = process.env.WAYFIND_IMAGE ?? 'wayfind-computer'
+const NO_NETWORK = process.env.WAYFIND_NO_NETWORK === '1'
 
 const PREFIX = 'wayfind-'
 let currentKey = null
@@ -24,6 +36,29 @@ function mountPath(p) {
   return `/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`
 }
 
+async function imageExists(image) {
+  try {
+    await run('docker', ['image', 'inspect', image])
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Our image is built from docker/Dockerfile on first boot (cached after).
+// WAYFIND_IMAGE overrides the tag — for a custom tag the operator builds it.
+async function ensureImage({ log = () => {} }) {
+  if (IMAGE !== 'wayfind-computer') {
+    if (!(await imageExists(IMAGE))) throw new Error(`image ${IMAGE} not found locally — build or pull it first`)
+    return
+  }
+  if (await imageExists(IMAGE)) return
+  log('computer: building wayfind-computer image (first run only, a few minutes)…')
+  await run('docker', ['build', '-t', IMAGE, path.join(REPO_ROOT, 'docker')], {
+    timeout: 600_000,
+    maxBuffer: 64 * 1024 * 1024
+  })
+}
 export function containerName(nodeId) {
   return `${PREFIX}${String(nodeId).slice(0, 12)}`
 }
@@ -39,9 +74,9 @@ export async function probeDocker() {
 
 async function inspect(name) {
   try {
-    const { stdout } = await run('docker', ['inspect', '--format', '{{.State.Running}}|{{.Config.Image}}', name])
-    const [running, image] = stdout.trim().split('|')
-    return { exists: true, running: running === 'true', image }
+    const { stdout } = await run('docker', ['inspect', '--format', '{{.State.Running}}|{{.Config.Image}}|{{.HostConfig.NetworkMode}}', name])
+    const [running, image, networkMode] = stdout.trim().split('|')
+    return { exists: true, running: running === 'true', image, networkMode }
   } catch {
     return { exists: false }
   }
@@ -63,19 +98,21 @@ export async function ensureComputer({ nodeId, workspaceDir, key, log = () => {}
   }
   currentKey = key
   const info = await inspect(name)
-  if (!info.exists || info.image !== IMAGE) {
+  const wantNetwork = NO_NETWORK ? 'none' : 'default'
+  if (!info.exists || info.image !== IMAGE || info.networkMode !== wantNetwork) {
     if (info.exists) await run('docker', ['rm', '-f', name]).catch(() => {})
-    log(`computer: pulling ${IMAGE} (first run only)…`)
-    await run('docker', ['pull', IMAGE], { timeout: 600_000, maxBuffer: 64 * 1024 * 1024 })
-    log(`computer: creating ${name}`)
-    await run('docker', [
-      'create', '--name', name,
-      '--network', 'none',
+    if (info.exists && info.networkMode !== wantNetwork) log(`computer: network mode changed (${info.networkMode} → ${wantNetwork}), recreating ${name}`)
+    await ensureImage({ log })
+    log(`computer: creating ${name}${NO_NETWORK ? ' (no network)' : ''}`)
+    const createArgs = ['create', '--name', name]
+    if (NO_NETWORK) createArgs.push('--network', 'none')
+    createArgs.push(
       '--memory', '2g', '--cpus', '2',
       '-v', `${mountPath(workspaceDir)}:/work`,
       '-w', '/work',
       IMAGE, 'sleep', 'infinity'
-    ])
+    )
+    await run('docker', createArgs)
   }
   const st = await inspect(name)
   if (!st.running) {

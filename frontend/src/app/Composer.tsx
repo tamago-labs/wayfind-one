@@ -24,7 +24,7 @@ export default function Composer({ botName, draft, onDraft, onSend, busy }: Prop
             onChange={(e) => onDraft(e.target.value)}
             disabled={busy}
             autoComplete="off"
-            placeholder={busy ? 'Working…' : `Message ${botName}… ($ for commands)`}
+            placeholder={busy ? 'Working…' : `Message ${botName}…`}
             className="min-w-0 flex-1 bg-transparent text-sm text-navy outline-none placeholder:text-slate-400 disabled:opacity-60"
           />
           <button

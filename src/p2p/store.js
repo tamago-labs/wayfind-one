@@ -6,12 +6,18 @@ import b4a from 'b4a'
 import Identity from 'keet-identity-key'
 
 // Shared team database (goji-shaped): one Autobase + Hyperbee view per team.
-// Tables: members/<nodeId>, invites/<nonce>, tasks/<taskId>.
+// Tables: members/<nodeId>, invites/<nonce>, tasks/<taskId>,
+//   provider-config (single row), provider-keys/<id>.
 // Member rows are signed: proof = attestData(canonical bytes) with the
 // member's device key; apply() drops anything that does not verify against
 // the row's nodeId (which IS the keet identity key — binding is direct).
 // Writer rows are appended by writers; any writer can propose one (v1 trust:
 // writers are members holding the team secrets).
+//
+// Provider keys replicate to every member device in plaintext inside the
+// team log (swarm-gated, but readable by anyone holding the team secrets).
+// Anyone who ever joins keeps a copy: rotate shared keys when membership
+// changes (`POST /api/providers/keys` overwrites).
 
 export function canonicalMember({ nodeId, displayName, updatedAt }) {
   return b4a.from(JSON.stringify({ nodeId, displayName, updatedAt }), 'utf8')
@@ -50,6 +56,18 @@ async function applyBatch(nodes, view, base) {
         const cur = await view.get('tasks/' + v.id)
         if (!cur || (v.updatedAt ?? 0) > (cur.value.updatedAt ?? 0)) {
           await view.put('tasks/' + v.id, v)
+        }
+      } else if (v.op === 'provider-config') {
+        if (typeof v.provider !== 'string') continue
+        const cur = await view.get('provider-config')
+        if (!cur || (v.updatedAt ?? 0) > (cur.value.updatedAt ?? 0)) {
+          await view.put('provider-config', v)
+        }
+      } else if (v.op === 'provider-key') {
+        if (!v.id || typeof v.key !== 'string') continue
+        const cur = await view.get('provider-keys/' + v.id)
+        if (!cur || (v.updatedAt ?? 0) > (cur.value.updatedAt ?? 0)) {
+          await view.put('provider-keys/' + v.id, v)
         }
       }
     } catch { /* one bad op never breaks the batch */ }
@@ -144,6 +162,36 @@ export class TeamStore {
 
   async invites() {
     return this.list('invites/')
+  }
+
+  async appendProviderConfig(provider, model) {
+    await this.base.append({
+      op: 'provider-config',
+      provider: String(provider ?? ''),
+      model: String(model ?? ''),
+      updatedBy: this.identity.identityPublicKey,
+      updatedAt: Date.now()
+    })
+  }
+
+  async appendProviderKey(id, key) {
+    await this.base.append({
+      op: 'provider-key',
+      id: String(id),
+      key: String(key),
+      updatedBy: this.identity.identityPublicKey,
+      updatedAt: Date.now()
+    })
+  }
+
+  async providerConfig() {
+    if (!this.view) return null
+    const row = await this.view.get('provider-config').catch(() => null)
+    return row?.value ?? null
+  }
+
+  async providerKeys() {
+    return this.list('provider-keys/')
   }
 
   async destroy() {

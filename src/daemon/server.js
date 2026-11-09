@@ -160,6 +160,48 @@ export function startServer({ port, ctrl }) {
     }
   })
 
+  // Provider selection + shared keys. Key values are write-only:
+  // GET reports which providers have keys, never the keys themselves.
+  // Shared keys replicate to every member device — rotate on membership
+  // change (POST a new value to /api/providers/keys).
+  app.get('/api/providers', async (req, res) => {
+    try {
+      res.json(await ctrl.providers())
+    } catch (err) {
+      res.status(409).json({ ok: false, error: String(err?.message ?? err) })
+    }
+  })
+
+  app.post('/api/providers/select', async (req, res) => {
+    try {
+      res.json(await ctrl.selectProvider(req.body?.provider, req.body?.model))
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /no active team|not a writer/.test(msg) ? 409 : 500
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
+  app.post('/api/providers/keys', async (req, res) => {
+    try {
+      res.json(await ctrl.shareProviderKey(req.body?.id, req.body?.key))
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /no active team|not a writer|key is required/.test(msg) ? 409 : 500
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
+  app.post('/api/providers/test', async (req, res) => {
+    try {
+      res.json(await ctrl.testProvider(req.body ?? {}))
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /no active team/.test(msg) ? 409 : /no model|no API key/.test(msg) ? 400 : 500
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
   app.get('/api/storage', (req, res) => {
     res.json({ ok: true, home: ctrl.base, bytes: dirBytes(ctrl.base) })
   })

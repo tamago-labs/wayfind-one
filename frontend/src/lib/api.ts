@@ -23,6 +23,7 @@ export interface Status {
   peers: Peer[]
   store?: { writable: boolean }
   computer?: { state: string; container?: string; image?: string; workspace?: string; error?: string }
+  provider?: { provider: string; model: string; hasKey: boolean } | null
   members: Member[]
   invites?: unknown[]
   teams: TeamRef[]

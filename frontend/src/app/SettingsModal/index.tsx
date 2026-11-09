@@ -5,6 +5,7 @@ import type { Status } from '../../lib/api'
 import { displayNameOf } from '../../hooks/useStatus'
 import ProfileForm from './ProfileForm'
 import TeamPanel from './TeamPanel'
+import ProvidersPanel from './ProvidersPanel'
 import AboutPanel from './AboutPanel'
 import AdvancedPanel from './AdvancedPanel'
 
@@ -14,11 +15,12 @@ interface Props {
   status: Status | null
 }
 
-type Tab = 'profile' | 'team' | 'about' | 'advanced'
+type Tab = 'profile' | 'team' | 'ai' | 'about' | 'advanced'
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'team', label: 'Team' },
+  { id: 'ai', label: 'AI' },
   { id: 'about', label: 'About' },
   { id: 'advanced', label: 'Advanced' },
 ]
@@ -87,6 +89,7 @@ export default function SettingsModal({ open, onClose, status }: Props) {
                   <ProfileForm initialName={displayNameOf(status).replace(/^node-/, '')} />
                 )}
                     {tab === 'team' && status && <TeamPanel status={status} />}
+                    {tab === 'ai' && <ProvidersPanel />}
                     {tab === 'about' && status && <AboutPanel status={status} />}
                     {tab === 'advanced' && <AdvancedPanel onTeamGone={onClose} />}
               </div>

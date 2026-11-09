@@ -16,6 +16,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
+    "@openai/agents": "^0.21.0",
+    "@openai/agents-openai": "^0.21.0",
     "autobase": "^7.28.2",
     "b4a": "^1.8.1",
     "corestore": "^7.16.1",
@@ -24,7 +26,9 @@
     "hypercore-crypto": "^3.7.0",
     "hyperswarm": "^4.8.0",
     "keet-identity-key": "^3.2.0",
-    "z32": "^1.1.0"
+    "openai": "^7.53.0",
+    "z32": "^1.1.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "oxlint": "^1.90.0"

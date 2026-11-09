@@ -126,7 +126,7 @@ export default function App() {
         onToggleSearch={() => setShowSearch((s) => !s)}
         onNew={() => setBotModalOpen(true)}
       />
-      <ChatMain status={status} bot={bots[cur] ?? null} panelOpen={panelOpen} onOpenPanel={() => setPanelOpen((o) => !o)} onSend={sendChat} />
+      <ChatMain status={status} bot={bots[cur] ?? null} panelOpen={panelOpen} onOpenPanel={() => setPanelOpen((o) => !o)} onOpenSettings={() => setSettingsOpen(true)} onSend={sendChat} />
       {bots[cur] && (
         <BotPanel
           bot={bots[cur]}

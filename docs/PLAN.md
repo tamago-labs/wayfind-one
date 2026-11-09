@@ -26,8 +26,9 @@ Your team controls where work executes and who can access it.
 8. [Policy file](#policy-file)
 9. [Threat model](#threat-model)
 10. [Development guide](#development-guide)
-11. [Roadmap](#roadmap)
-12. [Limitations](#limitations)
+11. [Wayfind ONE vs NEAR RED sandbox](#wayfind-one-vs-near-red-sandbox)
+12. [Roadmap](#roadmap)
+13. [Limitations](#limitations)
 
 ---
 
@@ -41,7 +42,7 @@ Wayfind ONE keeps the data with the team. The core tension it resolves: coordina
 |---|---|---|
 | Where bots run | Hosted cloud computer (MicroVMs on AWS) | **Your team's own machines** (Docker sandboxes) |
 | How the team shares work | Through our servers | **Encrypted P2P, no central server** |
-| Where inference runs | Open-weight models on our infrastructure | **NEAR AI Cloud, inside attested TEEs** |
+| Where inference runs | Open-weight models on our infrastructure | **Your choice of OpenAI-compatible provider** (Meta default; attestation verification planned) |
 | Always on | Yes | Only while a node is online (run a headless node for 24/7) |
 | Best for | Small businesses wanting convenience | **Teams with sensitive data** |
 
@@ -62,7 +63,7 @@ We make a precise claim, not a magical one. The workspace has four data domains:
 - No single permanent team key: keys are versioned and member-scoped from the start; removing a member rotates keys and revokes future access.
 - Revocation cannot erase files or plaintext a member already copied. We state this honestly.
 - An authorized executor necessarily processes the plaintext it needs, at least temporarily — private-by-default controls *who may become* an executor, not physics.
-- The only network call that leaves your machines for AI is **inference to NEAR AI Cloud**, where models run in Intel TDX confidential VMs with NVIDIA TEE GPUs. Wayfind ONE **verifies the attestation** and response signatures before trusting a reply.
+- Inference goes to your configured OpenAI-compatible provider (Meta default) over HTTPS. Attestation verification is planned, not built — today you trust the provider's transport the way any API client does.
 - API keys and other secrets live in the host process. **Sandboxes never see them.**
 
 **What is NOT protected**
@@ -73,7 +74,7 @@ We make a precise claim, not a magical one. The workspace has four data domains:
 
 ## Architecture
 
-> Target architecture. **Built today:** daemon, P2P swarm (discovery + invites), web UI shell + Team page. **Planned:** team store, claims, policy engine, sandbox runner, inference proxy.
+> Target architecture. **Built today:** daemon, P2P swarm (discovery + invites), shared team store (members/invites/provider config+keys), owner-private bots + chat UI with tool execution, Docker computer (auto-start, network on), inference via OpenAI-compatible providers (Meta default). **Planned:** policy engine + approvals, attestation verification, group chat + DMs, task claims (only if needed).
 
 ```
  Teammate A (laptop)                              Teammate B (laptop / VPS)
@@ -81,16 +82,16 @@ We make a precise claim, not a magical one. The workspace has four data domains:
 │ wayfind-one daemon           │                │ wayfind-one daemon           │
 │  ├─ Web UI  (localhost)      │                │  ├─ Web UI  (localhost)      │
 │  ├─ My bots (owner-private)  │                │  ├─ My bots (owner-private)  │
-│  │    └─ bot sandbox ─┐      │                │  │    └─ bot sandbox ─┐      │
-│  └─ Inference proxy ◄─┘      │                │  └─ Inference proxy ◄─┘      │
+│  ├─ Inference (host-direct)  │                │  ├─ Inference (host-direct)  │
+│  ├─ Docker computer (/work)  │                │  ├─ Docker computer (/work)  │
 │  ├─ Team store (Hyperbee)    │◄── HyperDHT ──►│  ├─ Team store (Hyperbee)    │
 │  ├─ Task coordinator + claims│  encrypted P2P │  ├─ Task coordinator + claims│
 │  ├─ Policy engine + approvals│                │  ├─ Policy engine + approvals│
 │  └─ Group chat + DMs ────────┼── roster ─────►│  └─ Group chat + DMs ────────│
 └───────────────┬──────────────┘                └──────────────┬───────────────┘
-                │  HTTPS + attestation verified                │
+                │  HTTPS                                       │
                 ▼                                              ▼
-        NEAR AI Cloud (TEE inference, signed responses)
+         OpenAI-compatible provider (Meta default)
 ```
 
 | Layer | Technology | Responsibility |
@@ -103,14 +104,14 @@ We make a precise claim, not a magical one. The workspace has four data domains:
 | Multiwriter coordination | Autobase | Shared task and team state |
 | Structured views | Hyperbee | Queryable state |
 | File replication | Hyperdrive / Hypercore | Workspace file synchronization |
-| Sandbox | Docker (Firecracker optional) | Isolated bot execution |
-| AI inference | NEAR AI Cloud | Confidential remote inference |
-| Attestation | Official NEAR AI SDK | Verify model/runtime claims |
+| Sandbox | Docker, own Ubuntu image | Per-node bot computer, network on, keys never inside |
+| AI inference | OpenAI-compatible providers (Meta default) | Host-direct via Agents SDK; attestation planned |
+| Attestation | Official SDK verification | Planned (`verify` command) |
 
 **Rules of the design:**
 - Bots are **owned, not shared**: definitions, prompts and memory never leave the owner's machine. The team shares only the **roster** (bot IDs, names, owner, capabilities).
 - A group-chat mention or DM **routes to the owner node**, which executes and replies. v1 executes on the owner machine only; delegation to trusted nodes is a later, per-bot grant.
-- The sandbox can only talk to the inference proxy on the host. The proxy holds the key, checks attestation, applies policy, and logs every call. It is not a general tool gateway.
+- The sandbox receives raw shell strings only. Keys live in the host daemon (env > shared store) and never enter the container; inference is host-direct, so there is no proxy hop to build.
 
 ## Quick start
 
@@ -165,13 +166,14 @@ npx wayfind-one up
 | **Team** (built) | A set of members sharing one encrypted store, identified by a team key |
 | **Node** (built) | One running daemon on one machine. Has its own identity key |
 | **Invite** (built) | A one-time code carrying the team secrets; spent on first redeem |
-| **Bot** (planned) | An AI teammate: role prompt, memory, allowed tools, policy. **Owned, not shared** — lives only on the owner's machine |
-| **Roster** (planned) | Shared directory of member and bot IDs, display names, owners, capabilities. Metadata only |
+| **Bot** (built) | An AI teammate: role prompt, thread, allowed tools. **Owned, not shared** — lives only on the owner's machine; UI: sidebar, chat, settings panel |
+| **Provider** (built) | An OpenAI-compatible inference endpoint (Meta default). Selection + shared keys replicate; keys never enter Docker |
+| **Roster** (built) | Shared directory of member IDs + display names. Bot roster entries planned with group chat |
 | **Group chat** (planned) | Team-visible channel; @-mentioning a bot routes the task to its owner |
 | **DM** (planned) | Member-to-bot task; visible to sender + executing owner only |
-| **Sandbox** (planned) | A Docker container where a bot's tools and code run, with no direct internet |
-| **Task** (planned) | A unit of work for a bot: unique IDs, encrypted payload, execution requirements |
-| **Claim** (planned) | A node's execution record: execution ID, lease, fencing generation (no exactly-once — duplicates possible, side effects must be idempotent, sensitive actions need approval) |
+| **Sandbox** (built) | This node's Docker computer: Ubuntu + python3/curl/git, workspace at `/work`, network on, keys never inside |
+| **Task** (deferred) | Only if a real double-work problem shows up |
+| **Claim** (deferred) | Same — leases/fencing wait for multi-actor execution |
 | **Policy** (planned) | Rules for spending, tools, egress and approvals |
 | **Approval** (planned) | A teammate's sign-off required before a sensitive action |
 
@@ -213,22 +215,24 @@ policy                     team policy (versioned)
 
 **Known gap:** removing a member means rotating the team key and re-encrypting. Tracked in the [roadmap](#roadmap); stated plainly.
 
-### 2. Sandbox runner
+### 2. Sandbox runner (built)
 
-- **Default:** Docker, one container per bot (or per task), non-root, read-only root filesystem, CPU/memory/time limits, a scratch volume.
-- **Network:** no default route to the internet. The only reachable endpoint is the inference proxy on the host (via a dedicated Docker network and a per-sandbox token). Any other outbound access must be listed in policy and goes through the proxy.
+- **Default:** Docker, one persistent container per node (`wayfind-<node12>`), CPU/memory limits, workspace mount at `/work`.
+- **Image:** our own (`docker/Dockerfile`, built once on first activation): Ubuntu + python3 + curl + git. Minimal bases were rejected — agents need the tools they reach for.
+- **Network: ON (bridge).** Unlike offline-analysis sandboxes, our tools legitimately need egress (package installs, API calls, git). Host isolation comes from namespaces + mounts (only the workspace is shared), not from blocking the network. `WAYFIND_NO_NETWORK=1` restores `--network none`. Containers created under the old default are auto-rebuilt on next boot.
+- **Keys never enter the container.** The agent loop runs in the host daemon, which already holds credentials legitimately — there is no credential proxy because there is nothing to proxy across.
+- **Not yet:** non-root user, read-only root filesystem, per-task containers (one persistent container per node for now).
 - **Optional (Linux with KVM):** Firecracker for stronger isolation. Not required for the hackathon.
-- **Files:** team files are mounted into the sandbox only for the task that needs them.
+- **Files:** the team's workspace directory is mounted at `/work`; teammates each have their own.
 
-### 3. Inference proxy (the core privacy piece)
+### 3. Inference (built: host-direct, no proxy hop)
 
-Runs on the host. The sandbox talks to it; it talks to NEAR AI Cloud.
+Runs in the host daemon via `@openai/agents` (cloud parity). There is no sandbox→proxy hop because the agent loop itself runs at the host, which already holds credentials legitimately — the sandbox only ever receives raw shell strings.
 
-- Uses the OpenAI-compatible API: base URL `https://cloud-api.near.ai/v1`. Where possible, use the **direct completions** endpoint of a model (for example `https://<model>.completions.near.ai`), which goes straight to the model's TEE with no gateway in the path.
-- Holds the API key. The sandbox never receives it.
-- **Verifies before trusting** (see below), and caches the verified state with an expiry.
-- Applies policy (model allow-list, token limits) and writes an audit record for every call.
-- Refuses to forward traffic if attestation fails.
+- OpenAI-compatible providers from `providers.json`: **Meta Model API** (`https://api.meta.ai/v1`, `MODEL_API_KEY`, default — Muse Spark standard + contributor models in a grouped dropdown), NEAR AI, OpenAI, Local (Ollama-compatible, just another entry). UI: Settings → AI tab (provider dropdown, model dropdown/custom name, key field, Test button).
+- Keys resolve env > shared store > catalog default. Provider+model selection and team-shared keys replicate in the team store (write-only via API; rotation on membership change). Keys never enter Docker.
+- Tool use: `shell` (Docker), `read`/`write`/`list` (host workspace, path-contained), doom-loop guard at 3 repeats.
+- **Not yet:** attestation verification (`verify` command), response-signature checks, verified badge. The NEAR endpoint in the catalog (`https://api.near.ai/v1`) is unverified — override in `<home>/providers.json` if wrong.
 
 **Verification flow**
 
@@ -371,6 +375,26 @@ WAYFIND_HOME=.node-b npx wayfind-one up --port 7778
 - Default to safe: attestation required, egress closed, approvals on.
 - Keep the inference proxy a pure inference path — never a general tool gateway.
 
+## Wayfind ONE vs NEAR RED sandbox
+
+NEAR AI Red (`nearai-red-sandbox`) is the closest reference design: disposable microVMs, host-held credentials, offline-by-default guests. We borrow its shape but differ where our goals differ — RED is built for *analyzing* untrusted code; ONE is built for *working* with an agent.
+
+| | NEAR RED sandbox | Wayfind ONE computer |
+|---|---|---|
+| Goal | Security research on untrusted code (inspect, reproduce, report) | Daily agentic work (files, shell, packages, APIs) |
+| Guest tech | Linux microVM via Apple virtualization (`mvm`) | Docker container, own Ubuntu image |
+| Platform | macOS on Apple Silicon only | Any OS with Docker (built on Windows) |
+| Agent location | **Inside** the guest | **At the host** (daemon); guest gets shell strings only |
+| Network default | Off; allowlisted hosts/ports per launch | **On** (bridge); tools need egress. `WAYFIND_NO_NETWORK=1` restores off |
+| Credential handling | Host-side inference proxy; guest never sees keys | Same guarantee, no proxy needed: keys live in the daemon and the guest is unreachable to them |
+| Inference path | Guest → host proxy (attested TLS, signed receipts) → NEAR AI Cloud | Daemon → provider HTTPS directly (`@openai/agents`) |
+| Attestation | Verified before launch + per inference | Planned (`verify` command) |
+| Persistence | Disposable: `/out` exported, VM destroyed | Persistent per node: workspace + thread survive restarts |
+| Workspace sharing | Copied in per session, exported at end | Mounted live at `/work`; P2P sync is future work |
+| Lifecycle | Per session (`rts`), records kept for review | Auto-start with daemon, recreated on image/network change |
+
+Takeaway: RED's proxy exists because its agent runs *inside* the untrusted guest. Ours doesn't, so host-direct inference satisfies the same "keys never enter the sandbox" rule with one less hop. What we still owe RED: attestation verification and an egress allowlist if tools ever need constraining.
+
 ## Roadmap
 
 ### Phase 1 — Working foundation (built)
@@ -382,12 +406,13 @@ WAYFIND_HOME=.node-b npx wayfind-one up --port 7778
 ### Phase 2 — Distributed execution
 - Hypercore event storage + Autobase team coordination (shared roster, task queue)
 - Owner-local bots + sandbox runner (Docker)
-- Group chat + DMs routed to owner nodes
-- Task claiming: execution IDs, leases, fencing, idempotency, recovery after disconnect
+- Inference v1 (built): OpenAI-compatible providers via @openai/agents, `providers.json` catalog, provider+model selection + shared keys replicated in the team store, keys never enter Docker. Local models are just another catalog entry.
+- Group chat + DMs routed to owner nodes (deferred — needs the agent loop first)
+- Task claiming: execution IDs, leases, fencing, idempotency, recovery after disconnect (deferred — only if a real double-work problem shows up)
 
 ### Phase 3 — Private AI
-- NEAR AI inference proxy (official SDK), model/response verification, verified badge
-- Scoped sandbox-to-inference communication
+- Attestation verification (`verify` command), response-signature checks, verified badge
+- Egress allowlist for the computer (scoped network policy per team)
 - Private conversation encryption + task-specific context access
 
 ### Phase 4 — Team experience
@@ -410,6 +435,7 @@ WAYFIND_HOME=.node-b npx wayfind-one up --port 7778
 - Revocation: removing a member rotates keys but cannot erase already-copied data.
 - No exactly-once execution: partitions or crashes can duplicate attempts — idempotency keys + approvals mitigate, not eliminate.
 - Sandboxes are containers, not TEEs: root on the host can read sandbox memory.
+- Shared provider keys replicate to every member device in plaintext inside the team log: anyone who ever joins keeps a copy. Rotate via `POST /api/providers/keys` on membership change; members can override with their own key via env.
 
 ## License
 
