@@ -6,6 +6,7 @@ import {
   migrateLegacy, loadRegistry, listTeams, readTeam, updateTeamFile,
   setActive, clearActive, readProfile, writeProfile, joinTeam
 } from '../teams.js'
+import { loadBots, createBot, updateBot, deleteBot } from '../bots.js'
 import { startServer } from '../daemon/server.js'
 
 // Bootstrap: identity + team + swarm + shared store + daemon.
@@ -174,6 +175,43 @@ export async function upCommand({ port, topic, home }) {
       writeProfile(this.teamHome, { displayName: name })
       await this.store.appendMember(name)
       return this.store.members()
+    },
+
+    // Owner-private bots: local file only, never in the shared store.
+    async bots() {
+      if (!this.team || !this.teamHome || !this.nodeId) throw new Error('no active team')
+      return loadBots(this.teamHome, this.nodeId)
+    },
+
+    async createBot(name, isChief = false) {
+      if (!this.team || !this.teamHome || !this.nodeId) throw new Error('no active team')
+      const v = String(name ?? '').slice(0, 40).trim()
+      if (!v) throw new Error('name is required')
+      return createBot(this.teamHome, this.nodeId, v, isChief === true)
+    },
+
+    async updateBot(id, patch) {
+      if (!this.team || !this.teamHome || !this.nodeId) throw new Error('no active team')
+      const p = {}
+      if (patch?.name !== undefined) {
+        const v = String(patch.name).slice(0, 40).trim()
+        if (!v) throw new Error('name is required')
+        p.name = v
+      }
+      if (patch?.role !== undefined) p.role = String(patch.role).slice(0, 500)
+      if (patch?.color !== undefined) p.color = String(patch.color)
+      if (patch?.shape !== undefined) p.shape = String(patch.shape)
+      if (patch?.isChiefOfStaff !== undefined) p.isChiefOfStaff = patch.isChiefOfStaff === true
+      const bot = updateBot(this.teamHome, this.nodeId, String(id), p)
+      if (!bot) throw new Error('unknown bot')
+      return bot
+    },
+
+    async deleteBot(id) {
+      if (!this.team || !this.teamHome || !this.nodeId) throw new Error('no active team')
+      const ok = deleteBot(this.teamHome, this.nodeId, String(id))
+      if (!ok) throw new Error('unknown bot')
+      return { ok: true }
     }
   }
 

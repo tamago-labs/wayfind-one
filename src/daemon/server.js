@@ -104,6 +104,48 @@ export function startServer({ port, ctrl }) {
     }
   })
 
+  app.get('/api/bots', async (req, res) => {
+    try {
+      res.json({ ok: true, bots: await ctrl.bots() })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      res.status(/no active team/.test(msg) ? 409 : 500).json({ ok: false, error: msg })
+    }
+  })
+
+  app.post('/api/bots', async (req, res) => {
+    try {
+      const bot = await ctrl.createBot(req.body?.name, req.body?.isChiefOfStaff)
+      res.json({ ok: true, bot })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /no active team/.test(msg) ? 409 : /name is required/.test(msg) ? 400 : 500
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
+  app.patch('/api/bots/:id', async (req, res) => {
+    try {
+      const bot = await ctrl.updateBot(req.params.id, req.body ?? {})
+      res.json({ ok: true, bot })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /unknown bot/.test(msg) ? 404 : /no active team/.test(msg) ? 409 : 400
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
+  app.delete('/api/bots/:id', async (req, res) => {
+    try {
+      await ctrl.deleteBot(req.params.id)
+      res.json({ ok: true })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /unknown bot/.test(msg) ? 404 : 409
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
   app.get('/api/storage', (req, res) => {
     res.json({ ok: true, home: ctrl.base, bytes: dirBytes(ctrl.base) })
   })
