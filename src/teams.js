@@ -127,6 +127,12 @@ export function setActive(base, teamId) {
   return true
 }
 
+export function clearActive(base) {
+  const reg = loadRegistry(base)
+  reg.active = null
+  saveRegistry(base, reg)
+}
+
 // Full join flow shared by the CLI and the daemon: decode → redeem against
 // the issuer over the swarm (issuer must be online) → adopt → activate.
 // Throws 'invalid invite code' on bad codes; redeem errors otherwise.

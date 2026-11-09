@@ -50,7 +50,7 @@ export default function ConnectModal({ open, onClose, status }: Props) {
             transition={{ duration: 0.15 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-navy p-6 text-white sm:w-2/5">
+            <div className="flex flex-col bg-navy p-6 text-white sm:w-2/5">
               <Mascot color="white" size="sm" motion="none" label="Wayfind mascot" />
               <p className="mt-4 font-brico text-xl font-bold">Welcome</p>
               <p className="mt-1 text-sm text-white/70">
@@ -61,13 +61,14 @@ export default function ConnectModal({ open, onClose, status }: Props) {
                 <li>✓ Encrypted P2P sync</li>
                 <li>✓ No central server</li>
               </ul>
+              <p className="mt-auto pt-6 font-mono text-[11px] text-white/50">v{__APP_VERSION__}</p>
             </div>
 
             <div className="flex-1 p-6">
               {!connected && (
                 <p className="text-sm text-heroslate">Daemon offline — start it, then refresh.</p>
               )}
-              {connected && <TeamSetup key={openCount} status={status} />}
+              {connected && !status.team && <TeamSetup key={openCount} status={status} onDone={onClose} />}
             </div>
           </motion.div>
         </motion.div>

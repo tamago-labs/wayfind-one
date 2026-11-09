@@ -4,7 +4,7 @@ import { TeamSwarm } from '../p2p/swarm.js'
 import { TeamStore } from '../p2p/store.js'
 import {
   migrateLegacy, loadRegistry, listTeams, readTeam, updateTeamFile,
-  setActive, readProfile, writeProfile, joinTeam
+  setActive, clearActive, readProfile, writeProfile, joinTeam
 } from '../teams.js'
 import { startServer } from '../daemon/server.js'
 
@@ -158,6 +158,12 @@ export async function upCommand({ port, topic, home }) {
       const { team } = await joinTeam(this.base, (code ?? '').toString().trim())
       if (!team?.teamId) throw new Error('invalid invite code')
       return this.activate(team.teamId)
+    },
+
+    async leave() {
+      await this.deactivate()
+      clearActive(this.base)
+      return this.status()
     },
 
     async setProfile(displayName) {

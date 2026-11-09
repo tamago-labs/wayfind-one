@@ -11,8 +11,10 @@ export function useAction() {
     setError(null)
     try {
       await fn()
+      return true
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      return false
     } finally {
       setBusy(false)
     }

@@ -6,6 +6,7 @@ import { displayNameOf } from '../../hooks/useStatus'
 import ProfileForm from './ProfileForm'
 import TeamPanel from './TeamPanel'
 import AboutPanel from './AboutPanel'
+import AdvancedPanel from './AdvancedPanel'
 
 interface Props {
   open: boolean
@@ -13,12 +14,13 @@ interface Props {
   status: Status | null
 }
 
-type Tab = 'profile' | 'team' | 'about'
+type Tab = 'profile' | 'team' | 'about' | 'advanced'
 
 const tabs: { id: Tab; label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'team', label: 'Team' },
   { id: 'about', label: 'About' },
+  { id: 'advanced', label: 'Advanced' },
 ]
 
 // Connected-state modal only: settings with a side tab rail. No mascot,
@@ -42,8 +44,6 @@ export default function SettingsModal({ open, onClose, status }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
-
-  const selfName = displayNameOf(status)
 
   return createPortal(
     <AnimatePresence>
@@ -75,10 +75,6 @@ export default function SettingsModal({ open, onClose, status }: Props) {
                   {t.label}
                 </button>
               ))}
-              <p className="mt-auto truncate px-3 py-2 font-mono text-[11px] text-heroslate">
-                {status?.nodeId ? `${status.nodeId.slice(0, 8)}…` : ''}
-                {selfName !== '…' && ` · ${selfName}`}
-              </p>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6">
@@ -90,8 +86,9 @@ export default function SettingsModal({ open, onClose, status }: Props) {
                 {tab === 'profile' && (
                   <ProfileForm initialName={displayNameOf(status).replace(/^node-/, '')} />
                 )}
-                {tab === 'team' && status && <TeamPanel status={status} />}
-                {tab === 'about' && status && <AboutPanel status={status} />}
+                    {tab === 'team' && status && <TeamPanel status={status} />}
+                    {tab === 'about' && status && <AboutPanel status={status} />}
+                    {tab === 'advanced' && <AdvancedPanel onTeamGone={onClose} />}
               </div>
             </div>
           </motion.div>

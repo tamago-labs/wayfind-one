@@ -4,6 +4,20 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { listTeams, createTeam } from '../teams.js'
 
+function dirBytes(dir) {
+  let total = 0
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      try {
+        if (entry.isDirectory()) total += dirBytes(full)
+        else total += fs.statSync(full).size
+      } catch { /* racing writes */ }
+    }
+  } catch { /* missing dir */ }
+  return total
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 const publicDir = path.join(here, '..', '..', 'frontend', 'dist')
 
@@ -79,6 +93,34 @@ export function startServer({ port, ctrl }) {
       const http = /no active team/.test(msg) ? 409 : /not a writer|name is required/.test(msg) ? 400 : 500
       res.status(http).json({ ok: false, error: msg })
     }
+  })
+
+  app.post('/api/teams/leave', async (req, res) => {
+    try {
+      const status = await ctrl.leave()
+      res.json({ ok: true, ...status })
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err?.message ?? err) })
+    }
+  })
+
+  app.get('/api/storage', (req, res) => {
+    res.json({ ok: true, home: ctrl.base, bytes: dirBytes(ctrl.base) })
+  })
+
+  app.post('/api/workspace/reset', async (req, res) => {
+    // Wipe everything and stop: open cores cannot survive their files
+    // disappearing, so the daemon exits and the user restarts it.
+    res.json({ ok: true, stopped: true })
+    setTimeout(async () => {
+      try {
+        await ctrl.deactivate()
+      } catch { /* going away anyway */ }
+      try {
+        fs.rmSync(ctrl.base, { recursive: true, force: true })
+      } catch { /* best effort */ }
+      process.exit(0)
+    }, 500)
   })
 
   app.post('/api/swarm/join', async (req, res) => {
