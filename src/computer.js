@@ -1,6 +1,7 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -69,6 +70,91 @@ export async function probeDocker() {
     return true
   } catch {
     return false
+  }
+}
+
+// Docker is mandatory, so `npm start` tries to bring the engine up instead
+// of just dying: Windows/macOS get a Docker Desktop launch attempt + wait;
+// Linux prints the systemctl command (sudo makes silent autostart rude).
+// `--no-docker-autostart` (or WAYFIND_NO_DOCKER_AUTOSTART=1) keeps the old
+// fail-fast behavior.
+const ENGINE_WAIT_MS = 90_000
+
+function desktopCandidates() {
+  if (process.platform === 'win32') {
+    const roots = [
+      process.env.ProgramFiles,
+      process.env['ProgramFiles(x86)'],
+      path.join(os.homedir(), 'AppData', 'Local', 'Docker', 'Desktop')
+    ].filter(Boolean)
+    const out = []
+    for (const r of roots) {
+      out.push(path.join(r, 'Docker', 'Docker', 'Docker Desktop.exe'))
+      out.push(path.join(r, 'Docker Desktop.exe'))
+    }
+    return out
+  }
+  if (process.platform === 'darwin') {
+    return ['/Applications/Docker.app/Contents/MacOS/Docker Desktop']
+  }
+  return []
+}
+
+async function tryLaunchDesktop(log) {
+  if (process.platform === 'darwin') {
+    // `open -a` handles both /Applications and ~/Applications installs.
+    try {
+      await run('open', ['-a', 'Docker'], { timeout: 15_000 })
+      return true
+    } catch {
+      return false
+    }
+  }
+  for (const exe of desktopCandidates()) {
+    try {
+      if (!fs.existsSync(exe)) continue
+      const child = spawn(exe, [], { detached: true, stdio: 'ignore' })
+      child.unref()
+      return true
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return false
+}
+
+function manualHint() {
+  if (process.platform === 'win32') return 'start Docker Desktop, then run again.'
+  if (process.platform === 'darwin') return 'start Docker Desktop (or `colima start`), then run again.'
+  return 'start the engine with `sudo systemctl start docker`, then run again.'
+}
+
+export async function ensureDockerEngine({ autostart = true, log = () => {} } = {}) {
+  if (await probeDocker()) return true
+  if (!autostart) {
+    log(`wayfind-one: docker engine is not running — ${manualHint()}`)
+    return false
+  }
+  if (process.platform === 'linux') {
+    log(`wayfind-one: docker engine is not running — ${manualHint()}`)
+    return false
+  }
+  log('wayfind-one: docker engine is not running — launching Docker Desktop…')
+  if (!(await tryLaunchDesktop(log))) {
+    log(`wayfind-one: could not launch Docker Desktop automatically — ${manualHint()}`)
+    return false
+  }
+  const deadline = Date.now() + ENGINE_WAIT_MS
+  for (;;) {
+    await sleep(3000)
+    if (await probeDocker()) {
+      log('wayfind-one: docker engine is up')
+      return true
+    }
+    if (Date.now() >= deadline) {
+      log(`wayfind-one: docker engine did not come up in time — ${manualHint()}`)
+      return false
+    }
   }
 }
 

@@ -8,7 +8,7 @@ import {
 } from '../teams.js'
 import { loadBots, createBot, updateBot, deleteBot, botSecret, botEncSecret, ensureBotKeys } from '../bots.js'
 import { runTurn } from '../agent.js'
-import { probeDocker, ensureComputer, removeAllComputers } from '../computer.js'
+import { probeDocker, ensureDockerEngine, ensureComputer, removeAllComputers } from '../computer.js'
 import { startServer } from '../daemon/server.js'
 import {
   loadGroup, mergeGroupMsgs, queueOutbox, shiftOutbox,
@@ -77,12 +77,14 @@ async function verifySender(store, from, bytes, sig) {
 }
 
 // Bootstrap: identity + team + swarm + shared store + daemon.
-// Docker is mandatory: without the engine the daemon refuses to start.
+// Docker is mandatory: without the engine the daemon refuses to start —
+// on Windows/macOS `npm start` tries to launch Docker Desktop first
+// (disable with --no-docker-autostart / WAYFIND_NO_DOCKER_AUTOSTART=1).
 // Boots team-less too — the UI setup screen creates or picks a team,
 // and activating a team auto-starts the local computer.
-export async function upCommand({ port, topic, home }) {
-  if (!(await probeDocker())) {
-    console.error('wayfind-one: Docker Desktop is not running — start it, then run again.')
+export async function upCommand({ port, topic, home, autostart = true }) {
+  if (!(await ensureDockerEngine({ autostart, log: (m) => console.log(m) }))) {
+    console.error('wayfind-one: Docker engine is not running — start it, then run again.')
     process.exit(1)
   }
   migrateLegacy(home)

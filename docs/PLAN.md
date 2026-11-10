@@ -217,7 +217,7 @@ policy                     team policy (versioned)
 
 ### 2. Sandbox runner (built)
 
-- **Default:** Docker, one persistent container per node (`wayfind-<node12>`), CPU/memory limits, workspace mount at `/work`.
+- **Default:** Docker, one persistent container per node (`wayfind-<node12>`), CPU/memory limits, workspace mount at `/work`. Docker is mandatory — but `npm start` tries to launch Docker Desktop itself on Windows/macOS (up to 90s wait; `--no-docker-autostart` / `WAYFIND_NO_DOCKER_AUTOSTART=1` keeps the old fail-fast). On Linux it prints the `systemctl` command instead (sudo makes silent autostart rude).
 - **Image:** our own (`docker/Dockerfile`, built once on first activation): Ubuntu + python3 + curl + git. Minimal bases were rejected — agents need the tools they reach for.
 - **Network: ON (bridge).** Unlike offline-analysis sandboxes, our tools legitimately need egress (package installs, API calls, git). Host isolation comes from namespaces + mounts (only the workspace is shared), not from blocking the network. `WAYFIND_NO_NETWORK=1` restores `--network none`. Containers created under the old default are auto-rebuilt on next boot.
 - **Keys never enter the container.** The agent loop runs in the host daemon, which already holds credentials legitimately — there is no credential proxy because there is nothing to proxy across.

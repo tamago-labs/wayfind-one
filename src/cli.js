@@ -16,15 +16,16 @@ function help() {
 Usage:
   wayfind-one [--port 7777]        start daemon + serve UI (active team, if any)
   wayfind-one init --team <name> [--force]
-  wayfind-one up [--port 7777] [--topic <hex>]
+  wayfind-one up [--port 7777] [--topic <hex>] [--no-docker-autostart]
   wayfind-one invite
   wayfind-one join <code>
 
-Planned (not yet): bot create, verify, doctor, demo
+ Planned (not yet): bot create, verify, doctor, demo
 
-Env:
-  WAYFIND_HOME   node home dir (default ~/.wayfind-one)
-  --home <dir>   same, as a flag (overrides WAYFIND_HOME)
+ Env:
+   WAYFIND_HOME   node home dir (default ~/.wayfind-one)
+   --home <dir>   same, as a flag (overrides WAYFIND_HOME)
+   WAYFIND_NO_DOCKER_AUTOSTART=1   don't try to launch Docker Desktop
 `)
 }
 
@@ -46,6 +47,8 @@ export async function main(argv) {
   const [cmd, ...rest] = at === -1 ? argv : argv.slice(at)
   if (cmd === '--help' || cmd === '-h') return help()
   const home = flag(argv, '--home') ?? homeDir()
+  const autostart =
+    !argv.includes('--no-docker-autostart') && process.env.WAYFIND_NO_DOCKER_AUTOSTART !== '1'
 
   // Bare run (or flags only): boot the daemon and serve the UI.
   if (!cmd || cmd.startsWith('-')) {
@@ -55,7 +58,7 @@ export async function main(argv) {
       process.exitCode = 2
       return
     }
-    await upCommand({ port, topic: flag(argv, '--topic'), home })
+    await upCommand({ port, topic: flag(argv, '--topic'), home, autostart })
     return
   }
 
@@ -78,7 +81,7 @@ export async function main(argv) {
         process.exitCode = 2
         return
       }
-      await upCommand({ port, topic, home })
+      await upCommand({ port, topic, home, autostart })
       return
     }
     case 'invite':
