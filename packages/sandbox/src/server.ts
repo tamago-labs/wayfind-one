@@ -11,7 +11,7 @@ import { handleLifecycle } from './lifecycle.js';
 import { handleMcp } from './mcp.js';
 import { hasSession } from './session.js';
 import { run as runExec } from './tools/exec.js';
-import { editTool, readTool, writeTool } from './tools/files.js';
+import { editTool, readEncTool, readTool, writeTool } from './tools/files.js';
 import { globTool, grepTool } from './tools/search.js';
 import { syncInTool, syncOutTool } from './tools/sync.js';
 
@@ -63,6 +63,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (route === 'POST /read') {
       const body = (await readBody(req)) as { path?: unknown };
       return json(res, 200, await readTool.run({ path: body.path as string }));
+    }
+    if (route === 'POST /read_enc') {
+      const body = (await readBody(req)) as { path?: unknown };
+      return json(res, 200, await readEncTool.run({ path: body.path as string }));
     }
     if (route === 'POST /write') {
       const body = (await readBody(req)) as { path?: unknown; content?: unknown };

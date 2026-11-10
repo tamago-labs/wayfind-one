@@ -1,9 +1,12 @@
 // Snapshot sync, Option A: push local dir up, pull diffs back, sha256-compared.
+// Payloads are AES-256-GCM sealed per file (see crypto.js) — the relay
+// (and anything logging it) sees metadata + ciphertext only.
 // Default excludes keep build junk and VCS metadata out of the snapshot.
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { relay } from './api.js';
+import { deriveWorkspaceKey, openFile, sealFile } from './crypto.js';
 
 const DEFAULT_EXCLUDES = new Set(['node_modules', '.git', 'dist', '.wayfind', '.DS_Store']);
 
@@ -27,6 +30,7 @@ export async function walkLocal(root, out = [], base = root) {
 }
 
 export async function push(token, session, dir) {
+  const key = deriveWorkspaceKey(session.sessionToken);
   const manifest = await relay(token, session, 'sync/out', {});
   const remote = new Map((manifest.files ?? []).map((f) => [f.path, f.sha256]));
   const local = await walkLocal(dir);
@@ -34,10 +38,11 @@ export async function push(token, session, dir) {
   const BATCH = 50;
   for (let i = 0; i < changed.length; i += BATCH) {
     const files = await Promise.all(
-      changed.slice(i, i + BATCH).map(async (f) => ({
-        path: f.rel,
-        contentBase64: (await fs.readFile(f.abs)).toString('base64'),
-      })),
+      changed.slice(i, i + BATCH).map(async (f) => {
+        const buf = await fs.readFile(f.abs);
+        const env = sealFile(key, f.rel, buf);
+        return { path: f.rel, sha256: env.sha256, nonce: env.nonce, data: env.data };
+      }),
     );
     await relay(token, session, 'sync/in', { files });
   }
@@ -45,16 +50,18 @@ export async function push(token, session, dir) {
 }
 
 export async function pull(token, session, dir) {
+  const key = deriveWorkspaceKey(session.sessionToken);
   const manifest = await relay(token, session, 'sync/out', {});
   const remote = manifest.files ?? [];
   const local = new Map((await walkLocal(dir)).map((f) => [f.rel, f.sha256]));
   let pulled = 0;
   for (const f of remote) {
     if (local.get(f.path) === f.sha256) continue;
-    const cur = await relay(token, session, 'read', { path: f.path });
+    const cur = await relay(token, session, 'read_enc', { path: f.path });
+    const plaintext = openFile(key, f.path, cur);
     const abs = path.join(dir, f.path);
     await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, cur.content, 'utf8');
+    await fs.writeFile(abs, plaintext);
     pulled++;
   }
   return { pulled, skipped: remote.length - pulled, total: remote.length };

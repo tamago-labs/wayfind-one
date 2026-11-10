@@ -1,200 +1,132 @@
-# PLAN-P1 — local-brain sessions on a new minimal image + local dashboard
+# PLAN-P1 — verifiable, ephemeral AI execution (CLI only)
 
-Date: 2026-11-10 (revised). Status: P0 login shipped, deployed, E2E
-verified through approval. Locked decisions: **Option A** (snapshot sync),
-**D1** (local dashboard from v1 frontend).
+Rewritten 2026-11-10. Only two phases. No dashboard, no BYOK, no local
+loop, no harness plugins. The product: issue an isolated, disposable
+execution environment, transfer a workspace into it, run private AI
+inference, return the results — with evidence, not trust.
 
-## The flip (locked)
+## Locked decisions
 
-- **Inference runs LOCAL, not in the microVM.** The sandbox is a dumb
-  exec box. The agent loop + multi-provider catalog live in the CLI,
-  salvaged from `v1/src/inference.js` + `v1/src/agent.js` (providers.json,
-  BYOK, transcript loop). NEAR AI primary (attested path), Meta for tests.
-  Provider keys live in `~/.wayfind` / env and **never enter the sandbox** —
-  the VM only ever sees prompts + file contents.
-- **New computer, new image.** wayfind-cloud's current image is the wrong
-  computer (full agent loop + injected keys inside the VM). Build a minimal
-  one: small Linux + node/python runtimes + one tiny exec agent exposing 6
-  tools (`exec/read/write/edit/glob/grep` over HTTP — same surface as
-  near-red's bridge). No loop, no skills, no MCP, no keys. Reuse the
-  computer pipeline mechanics via `packages/sandbox/scripts/image`
-  (`01-package-upload → 02-create-image`, lives in this repo), different
-  Dockerfile.
-- **`npm start` runs the dashboard UI (D1).** Serve the v1 frontend locally,
-  repointed at the CLI API: sandbox console shell (sessions, usage, export,
-  attestation status) with the teammate UI as the "Teammates" sub-view.
-  No UX split across local/remote.
+- **CLI is the entire product surface.** `login/run/push/exec/ai/verify/
+  pull/destroy`. No dashboard, no MCP config, no plugins.
+- **Wayfind provides everything, including inference keys. No BYOK.**
+  Keys live in Amplify secrets, never on user disk. Per task the user
+  chooses: `muse-spark` (cheap test/dry-run) or `near-ai` (attested).
+- **Session-scoped credentials only.** Long-lived provider keys never
+  enter the sandbox. At provision the backend mints a short-lived,
+  session-bound credential, injects it via `/hooks/run` (memory-only,
+  never logged), revokes it at terminate.
+- **Receipt signing: Amplify secret now, KMS later.** The receipt format
+  is fixed; only the signer upgrades.
+- **`wayfind ai` is thin (Phase 1):** single prompt in, text out, tools
+  execute via the existing exec agent. No multi-turn loop in the
+  product — harnesses stay outside by design.
+- **Backend is replaceable:** `lambda-microvm` now; `nitro-sandbox`
+  later (`--confidential` fails closed until then).
 
-## The product shape (locked): sandbox backend, not a harness
+## Honesty rule (non-negotiable)
 
-Wayfind does not compete with opencode/Claude Code — it plugs into them
-through one lean CLI. No local agent loop is built, no MCP configuration
-is required, no plugin to install:
+A Firecracker microVM gives **isolation** (host protected from workload),
+not **confidentiality** (workload protected from operator). Receipts
+distinguish three evidence classes and never mix them:
 
-- **`wayfind run` is the interface** — for humans and for Claude Code
-  alike. One-shot provision → push → exec → pull → terminate, plus
-  `export`/`status`/`stop`. A Claude Code user points the agent at the
-  workspace and tells it to use the CLI. Zero harness setup.
-- The in-sandbox tool surface (REST + `POST /mcp`, 8 tools, no loop, no
-  keys) is the execution backend the CLI drives. The MCP endpoint stays
-  available but nothing in P1 is built against it.
+- **observed** — Wayfind saw it (image digest, timestamps, hashes).
+- **signed** — Wayfind attests it (receipt signature).
+- **hardware-attested** — independent hardware proof (NEAR inference
+  attestation only; never claimed for the VM itself until Phase 3).
 
-This kills the hidden costs on every side: no harness rebuild, no fat
-image with a loop, no per-harness adapter matrix. One CLI, one image,
-one relay.
+## Phase 1 — secure ephemeral execution
 
-This kills the hidden cost in the old workstream 1 (rebuilding a harness)
-and the fat-image cost of putting the loop in the sandbox. The exec agent
-+ provision/relay API already built IS the product surface; adapters are
-the only new code. Inference location becomes the user's choice by
-construction (`--infer` is whichever harness they plug in).
+Goal: `login → run → push → exec/ai → pull → verify → destroy` fully
+working, every session disposable, every transfer encrypted.
 
-## Workstream 1 — exec sandbox backend (in progress)
+1. **Auth** — done, deployed (device flow, CliToken, same Cognito user).
+2. **Provision disposable VM** — done, live-verified (sandbox image,
+   session bearer, smoke test, orphan cleanup with verify-terminate).
+3. **SandboxSession rows** — done, live-verified (warm reuse via `run
+   --keep`, `status`/`stop`/`export`, wall-clock metering hook).
+4. **Encrypted workspace transfer.** Per-session AES-256-GCM. No key
+   transport: the workspace key is `HKDF-SHA256(session bearer)` — the
+   bearer already reaches exactly CLI + agent and dies with the session.
+   CLI seals chunks (unique nonce per file, path + plaintext sha in the
+   cryptographic context), pushes ciphertext through the relay; agent
+   decrypts in memory, executes, seals outputs, CLI verifies hashes and
+   decrypts locally. S3 stays out of the path entirely
+   (direct transfer; encrypted object storage only if resumable sessions
+   are ever needed — not P1).
+5. **Provider setup (Wayfind-held).** `MODAL/NEAR_API_KEY` + test key as
+   Amplify secrets. `wayfind ai "prompt" [--provider near-ai|muse-spark]`:
+   CLI sends prompt + provider choice; backend resolves a session-scoped
+   credential; in-sandbox `/ai` endpoint calls the provider over TLS and
+   returns text. Default `muse-spark` (cheap dry-run); `near-ai` for
+   attestation tasks. Keys never touch disk, logs, or the workspace.
+6. **Restricted egress.** Default-deny + NEAR endpoint + package-registry
+   preset. Per-customer allowlists defer to Phase 2.
+7. **Pull + destroy.** `pull` (encrypted, hash-verified), `destroy`
+   (terminate + revoke session credential + mark row; no plaintext
+   workspace persists anywhere).
+8. **Receipt v0.** Unsigned JSON manifest per session: session id,
+   workspace hash, image digest, runtime version, provider, endpoint
+   identity, started/terminated at, output hash, cleanup status —
+   labeled `observed`. `verify` checks hashes + session chain. Signing
+   lands in Phase 2; the format does not change.
 
-New minimal image, built with the `packages/sandbox/scripts/image`
-pipeline (lives in this repo; same mechanics as wayfind-cloud's computer
-pipeline: `01-package-upload → 02-create-image`), different
-Dockerfile, registered as a second ARN (teammate image untouched).
+Exit: clean machine → login → run → push → exec/ai → pull → verify →
+destroy, all encrypted, all disposable, no user-held keys anywhere.
 
-**Image contents (`wayfind-sandbox`):**
-- Small Linux + node + python runtimes only. No agent loop, no skills,
-  no MCP, no provider keys, no credentials of any kind.
-- One tiny exec agent (plain `node:http`, port 8080): `GET /health`,
-  `POST /exec {cmd, cwd, timeoutMs}` → `{stdout, stderr, exit}`,
-  `POST /read|/write|/glob|/grep`, `POST /sync/in {tar}` (workspace in),
-  `GET /sync/out` (diff tar out). Same 6-tool surface as near-red's
-  bridge, transported over the existing relay instead of `mvmctl exec`.
-- Auth: per-session bearer minted at provision (same `usageToken` shape),
-  required on every exec-agent route.
+## Phase 2 — verifiable execution
 
-**wayfind-api additions** (beside `/computer/*`, same handler patterns —
-already implemented, uncommitted in wayfind-cloud):
-- `POST /sandbox/provision {idleTtlSeconds?}` → RunMicrovm (new image ARN)
-  → wait RUNNING → mint session bearer → `POST /hooks/run` → smoke
-  `POST /exec {cmd:"true"}` → return `{sandboxId, endpoint, sessionToken}`.
-  Disposable: no suspend/resume, short idle TTL, hard 8h cap.
-- `POST /sandbox/terminate {sandboxId, sessionToken}` — proof-of-holdership
-  kill (agent re-verifies the bearer before terminating).
-- `ANY /sandbox/proxy/*` — relay with per-call VM token; user identity in
-  `Authorization`, session capability in `X-Sandbox-Id/X-Sandbox-Token`.
-- Sandbox wall-clock recorded (provision → terminate) → CreditLedger
-  `sandbox usage` deltas (metering workstream, server-side only).
+Goal: every Phase-1 claim becomes independently checkable.
 
-Exit: image builds, provision/proxy/terminate verified live against AWS.
+1. **Signed images.** Cosign/Sigstore signing, SBOM, reproducible builds,
+   pinned kernel + runtimes, versioned policy. `inspect` shows
+   image digest + signature + SBOM before authorizing a run.
+2. **Receipt signing.** Control-plane key (Amplify secret → KMS upgrade
+   path) signs every receipt. `verify` checks the signature offline.
+3. **NEAR attestation verification.** Port near-red's verifier (TDX
+   quotes + GPU evidence + pinned TLS + signed receipts, nonce-fresh
+   per request) into the CLI/verifier; bind the verified inference
+   identity into each receipt (`inference_attestation_verified: true`
+   only when actually verified — never otherwise).
+4. **Session-bound keys, formalized.** Key release tied to provision
+   lifecycle with explicit expiry; per-service scoping where the
+   provider supports it (e.g. repo-scoped tokens, never personal keys).
+5. **Audit trail.** Append-only per-tenant log: who ran what, where,
+   with which policy/image/provider; retention controls.
+6. **Policy enforcement.** Per-customer egress allowlists, `--require-
+   attestation` (fails closed on providers/deployments without it).
 
-## Workstream 2 — CLI as the interface (humans and Claude alike)
+Exit: an enterprise security review can independently verify image,
+execution, inference, and cleanup from the receipt + public keys alone.
 
-No plugin, no MCP configuration. The harness question is settled by
-making the CLI so lean that Claude Code just runs it:
-`wayfind run "..."` provisions (or reuses), pushes the snapshot, execs,
-pulls the diff, terminates. A Claude Code user points the agent at the
-workspace and tells it to use the CLI — zero MCP JSON, zero extra
-config, nothing to learn. MCP requires per-harness setup that normal
-users will not do; a CLI command is universal.
+## Explicitly out
 
-- **Thin CLI `run`.** One-shot provision → push snapshot → `exec` →
-  pull diff → terminate, plus `export`/`status`/`stop` wrappers.
-  No turn loop, no MCP client.
-- The in-sandbox `POST /mcp` endpoint stays in the image as an available
-  transport (built, verified, zero maintenance), but it is NOT the
-  product path — no adapters are built against it in P1.
+Dashboard UI (killed), BYOK (rejected — Wayfind holds all keys),
+local agent loop, harness plugins, MCP-as-product, live mounts,
+Nitro/confidential backend (future direction, fails closed until then),
+S3 in the data path, suspend/resume (disposable only).
 
-Exit: anyone (human or Claude Code) runs disposable-sandbox commands
-through one CLI, no configuration beyond `wayfind login`.
+## CLI surface
 
-**SandboxSession rows (required for session reuse).**
-`{ownerId, sandboxId, sessionTokenHash?, provisionedAt}` — owner-scoped,
-function + owner-read (CreditLedger shape). Lets `run` reuse a warm
-session instead of booting per invocation, powers `status`, and gives
-metering exact wall-clock. Provision creates it, terminate/proxy-heal
-updates it, idle TTL sweeps it.
-
-## Workstream 3 — dashboard D1 (parallel with 1)
-
-Serve `v1/frontend` from the CLI (`npm start`). Same UI, new data source.
-
-- **Bots stay visible, unchanged.** Roster sidebar, bot panels, DM panel,
-  composer/thread — reused as-is as the "Teammates" view. API swap only:
-  v1 daemon endpoints → CLI API (`/api/sessions`, `/api/export`,
-  `/api/auth/me`). The teammate view talks to the user's harness through
-  the sandbox backend — history alongside the workspace, not a P2P store.
-- **Sandbox configuration lives in Settings → new "Sandbox" tab**
-  (not scattered per-bot): image, cpu/mem, egress allowlist presets,
-  workspace folder, idle TTL. Per-session overrides in flags
-  (`--cpus`, `--memory`, `--allow`, `--ttl`).
-- **Session surface in the console shell:** status (provisioning/running/
-  terminated), wall-clock + cost so far (from CreditLedger), Export
-  button, receipt view (`receipt.json`), kill switch.
-
-## Workstream 4 — harden the boundary (do second)
-
-- **Egress allowlist on provision.** Port near-red's `network.rs` policy
-  core: default-deny, per-session allowlist, resolved-IP pinning, audit
-  log. The new minimal image starts closed; presets open package
-  registries only.
-- **Hostile-tar validation on export.** Reject symlinks/`..`/devices/
-  absolute paths, extract to `.partial` then rename, entry-count and size
-  caps (near-red `untar.rs` pattern).
-- **CliToken rotation.** New login rotates previous tokens for the same
-  deviceName; 90d TTL already enforced server-side.
-
-## Workstream 5 — billing gate (decide: now or enterprise)
-
-- Minimum viable: **soft warning** — `run` prints CreditLedger balance
-  before executing (read-only).
-- Hard gate: `provision`/`run` refuse when balance ≤ 0 (plan-aware).
-- Full charging (Stripe, credit packs) stays enterprise (PIVOT.md §11).
-
-Recommendation: soft warning ships with workstream 1 (ledger reads
-already exist); hard gate when abuse or a paying user forces it.
-
-## Workstream 6 (optional pull-forward) — attestation receipts
-
-`export` writes `receipt.json` beside files (session id, image digest,
-inference endpoint identity, egress audit lines, tool transcript hash).
-Unsigned in P1; TDX quotes + signed inference receipts land with the NEAR
-attestation work later. Verifiable from day one, crypto added without
-format churn.
+```
+wayfind login                    # device flow, same Cognito user
+wayfind run [--dir] [--ttl] [--fresh] -- <cmd>   # provision→push→exec→pull→terminate
+wayfind push [dir]               # snapshot up (encrypted)
+wayfind exec -- <cmd>            # one command on the live session
+wayfind ai "prompt" [--provider near-ai|muse-spark]
+wayfind pull [dir]               # results back (verified, decrypted)
+wayfind verify                   # check receipt (Phase 2: signature + attestation)
+wayfind status | stop | destroy  # session lifecycle
+# later: wayfind run --confidential | --require-attestation | inspect
+```
 
 ## Build order
 
-1. New `wayfind-sandbox` image via `packages/sandbox/scripts/image`;
-   ARN registered as `EXEC_IMAGE_ARN` (teammate image untouched).
-2. `/sandbox/provision` + `/sandbox/proxy/*` + `/sandbox/terminate` in
-   wayfind-api (done, uncommitted); server-side wall-clock metering to
-   CreditLedger.
-3. In-sandbox MCP → opencode plugin → thin CLI `run`/`export`/
-   `status`/`stop` (snapshot sync + hash skip).
-4. Dashboard D1 repoint (Sandbox settings tab + session shell); soft
-   balance warning; export receipt.
-5. Egress allowlist → export validation → token rotation.
-6. E2E: clean machine → login → MCP tool call in Claude Code → export →
-   stop → logout.
-
-## Deferred (not P1)
-
-Local turn loop / inference of our own (no-harness decision — the user
-brings opencode/Claude), interactive chat REPL, local microVM drivers
-(`--local`, PIVOT.md P2), SSO/SAML, BYOC, DLP/retention, Stripe, live
-mounts (rejected).
-
-## Deferred option — Wayfind-hosted keyless runs
-
-`--infer sandbox` (later): our keys, injected per-boot, inference metered
-by us through the same CreditLedger (teammate/org model — the user runs
-keyless, we bill tokens + sandbox together). wayfind-cloud's agent server
-+ `spendUsd` reporter already implement this half; it becomes a second,
-disposable image when keyless operation is needed. Inference location is
-otherwise the harness's choice by construction.
-
-## Known anomaly (carried from P0, resolve before E2E)
-
-One anomaly to be honest about: the server-side revoke returned
-`unknown CLI token`, even though `/auth/me` accepted that same token
-minutes earlier. Local logout still worked (fail-safe clears creds), but
-the server row may not be revoked. After re-login, trace a direct
-`POST /auth/revoke` call to see whether it reproduces — possibly a
-lookup bug in the revoke path (it uses `CliToken.get({id})` while
-verification uses the `cliTokenByTokenHash` GSI; if the row write and
-the GSI read diverge, or the id passed is stale, revoke fails while
-auth keeps working).
+1. SandboxSession rows + relay resolution (in progress, wayfind-cloud).
+2. Encrypted transfer (AES-GCM chunk protocol, CLI + exec agent).
+3. Provider secrets + session credentials + `wayfind ai` (thin).
+4. Egress default-deny + presets.
+5. Receipt v0 + `verify` (hash checks).
+6. E2E: login → run → ai (both providers) → pull → verify → destroy.
+7. Phase 2: image signing/SBOM → receipt signing → NEAR verifier →
+   audit trail → policies.

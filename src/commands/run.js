@@ -1,6 +1,6 @@
 // wayfind run -- one-shot disposable sandbox execution (warm reuse by default).
 // resolve session → push workspace → exec → pull diff → terminate (always).
-// Usage: wayfind run [--dir <path>] [--ttl <sec>] [--no-pull] [--fresh] -- <cmd...>
+// Usage: wayfind run [--dir <path>] [--ttl <sec>] [--no-pull] [--fresh] [--keep] -- <cmd...>
 //        wayfind run "echo hi"
 import path from 'node:path';
 import { loadToken, provision, relay, terminate } from '../sandbox/api.js';
@@ -12,12 +12,14 @@ export async function run(rawArgs) {
   let ttl = 1800;
   let doPull = true;
   let reuse = true;
+  let keep = false;
   while (args[0]?.startsWith('--')) {
     const flag = args.shift();
     if (flag === '--dir') dir = path.resolve(args.shift() ?? dir);
     else if (flag === '--ttl') ttl = Math.min(28_800, Math.max(300, Number(args.shift()) || ttl));
     else if (flag === '--no-pull') doPull = false;
     else if (flag === '--fresh') reuse = false;
+    else if (flag === '--keep') keep = true;
     else if (flag === '--') break;
     else {
       console.error(`Unknown flag: ${flag}`);
@@ -48,6 +50,10 @@ export async function run(rawArgs) {
       console.log(`[wayfind] pulled ${pulled.pulled}/${pulled.total} files.`);
     }
   } finally {
+    if (keep) {
+      console.log(`Session kept alive (ttl ${ttl}s). Use status / export / stop.`);
+      process.exit(exitCode);
+    }
     try {
       await terminate(token, session);
       console.log('Sandbox terminated.');
