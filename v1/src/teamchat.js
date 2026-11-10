@@ -2,15 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { genEncKeys } from './msgcrypto.js'
 
-// Team chat local state. Everything here is per-node disk state:
+// Team DM local state. Everything here is per-node disk state:
 // the shared store only carries roster ads — message bodies cross the swarm
-// live (and stay on the two endpoints' disks for DMs).
+// live and stay on the two endpoints' disks.
 //
-//   group.json  { msgs: [...], outbox: [...] }   — local copy of team thread
-//   dms.json    { threads: { key: { peer, msgs, unread } } }
+//   dms.json     { threads: { key: { peer, msgs, unread } } }
 //   nodeenc.json { pub, sec }                    — this node's x25519 DM keys
+//
+// (A group.json may linger on disk from before group chat was removed —
+// inert, never read.)
 
-const GROUP_CAP = 200
 const DM_THREAD_CAP = 100
 const DM_THREAD_MAX = 20
 
@@ -24,49 +25,6 @@ function readJson(file, fallback) {
 function writeJson(file, value, mode) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, JSON.stringify(value), mode ? { mode } : undefined)
-}
-
-// ---- group ----
-
-export function loadGroup(teamDir) {
-  if (!teamDir) return { msgs: [], outbox: [] }
-  const g = readJson(path.join(teamDir, 'group.json'), null)
-  if (g && Array.isArray(g.msgs)) return { msgs: g.msgs, outbox: Array.isArray(g.outbox) ? g.outbox : [] }
-  return { msgs: [], outbox: [] }
-}
-
-function saveGroup(teamDir, group) {
-  writeJson(path.join(teamDir, 'group.json'), group)
-}
-
-// Merge by id (catch-up from peers can overlap), sort by ts, cap.
-export function mergeGroupMsgs(teamDir, incoming) {
-  if (!teamDir) return []
-  const group = loadGroup(teamDir)
-  const seen = new Set(group.msgs.map((m) => m.id))
-  for (const m of incoming) {
-    if (m?.id && !seen.has(m.id)) {
-      seen.add(m.id)
-      group.msgs.push(m)
-    }
-  }
-  group.msgs.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))
-  if (group.msgs.length > GROUP_CAP) group.msgs = group.msgs.slice(group.msgs.length - GROUP_CAP)
-  saveGroup(teamDir, group)
-  return group.msgs
-}
-
-export function queueOutbox(teamDir, envelope) {
-  const group = loadGroup(teamDir)
-  if (!group.outbox.some((e) => e.id === envelope.id)) group.outbox.push(envelope)
-  saveGroup(teamDir, group)
-}
-
-export function shiftOutbox(teamDir) {
-  const group = loadGroup(teamDir)
-  const next = group.outbox.shift()
-  saveGroup(teamDir, group)
-  return next ?? null
 }
 
 // ---- DMs: one thread per counterparty ----

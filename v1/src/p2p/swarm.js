@@ -10,17 +10,6 @@ export function deriveTopic(teamIdHex, teamSecretHex) {
     .digest('hex')
 }
 
-// Store replication runs on its OWN topic/swarm. Corestore replication and
-// our JSON-lines chat protocol both write raw bytes — sharing one Noise
-// connection corrupts both streams (chat survives only because parse
-// failures are silently ignored). Separate streams, no framing fights.
-export function deriveStoreTopic(topicHex) {
-  return createHash('sha256')
-    .update('wayfind-one/v1/store')
-    .update(b4a.from(topicHex, 'hex'))
-    .digest('hex')
-}
-
 // One swarm per daemon. Topic-as-capability: only holders of the team
 // secrets can derive (and therefore discover) the topic. Connections are
 // Noise-encrypted + key-authenticated by Hyperswarm itself.

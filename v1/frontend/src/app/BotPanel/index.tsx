@@ -146,7 +146,7 @@ export default function BotPanel({ bot, computer, open, onClose, onSave, onDelet
         </div>
         {v.shared ? (
           <p className="mt-2 px-1 text-xs text-heroslate">
-            Shared — the team can message {bot.name} in group chat and DMs.
+            Shared — the team can message {bot.name} in DMs.
           </p>
         ) : (
           <p className="mt-2 px-1 text-xs text-heroslate">

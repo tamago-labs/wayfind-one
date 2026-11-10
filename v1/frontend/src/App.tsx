@@ -6,9 +6,9 @@ import ConnectModal from './app/ConnectModal'
 import SettingsModal from './app/SettingsModal'
 import NewBotModal from './app/NewBotModal'
 import BotPanel, { type BotEdits } from './app/BotPanel'
-import GroupPanel from './app/GroupPanel'
+import DmPanel from './app/DmPanel'
 import { useStatus, displayNameOf } from './hooks/useStatus'
-import { useTeamChat } from './hooks/useTeamChat'
+import { useDMs } from './hooks/useDMs'
 import { api, type Bot } from './lib/api'
 
 export default function App() {
@@ -23,11 +23,11 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false)
   const [botModalOpen, setBotModalOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [groupOpen, setGroupOpen] = useState(false)
+  const [dmOpen, setDmOpen] = useState(false)
 
   const hasTeam = status !== null && status.team !== null
-  const chat = useTeamChat(hasTeam)
-  const unread = chat.groupUnread + chat.dmUnread
+  const dms = useDMs(hasTeam)
+  const unread = dms.dmUnread
 
   // Auto-open the connect modal when there is no team yet (first run).
   if (hasTeam && dismissed) setDismissed(false)
@@ -144,19 +144,18 @@ export default function App() {
         />
       )}
       {hasTeam && (
-        <GroupPanel
-          open={groupOpen}
-          onClose={() => setGroupOpen(false)}
+        <DmPanel
+          open={dmOpen}
+          onClose={() => setDmOpen(false)}
           status={status}
-          selfName={displayNameOf(status)}
-          chat={chat}
+          dms={dms}
         />
       )}
-      {hasTeam && !groupOpen && (
+      {hasTeam && !dmOpen && (
         <button
-          onClick={() => setGroupOpen(true)}
-          aria-label="Open team chat"
-          title="Team chat"
+          onClick={() => setDmOpen(true)}
+          aria-label="Open messages"
+          title="Messages"
           className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-cta text-white shadow-lg hover:bg-ctahover"
         >
           <MessagesSquare className="h-6 w-6" strokeWidth={2} />

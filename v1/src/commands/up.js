@@ -1,6 +1,6 @@
 import { loadOrCreateIdentity } from '../p2p/identity.js'
 import { checkRedemption, markRedeemed, createInvite, issuerLedger } from '../p2p/invite.js'
-import { TeamSwarm, deriveStoreTopic } from '../p2p/swarm.js'
+import { TeamSwarm } from '../p2p/swarm.js'
 import { TeamStore } from '../p2p/store.js'
 import {
   migrateLegacy, loadRegistry, listTeams, readTeam, updateTeamFile,
@@ -11,7 +11,6 @@ import { runTurn } from '../agent.js'
 import { probeDocker, ensureDockerEngine, ensureComputer, removeAllComputers } from '../computer.js'
 import { startServer } from '../daemon/server.js'
 import {
-  loadGroup, mergeGroupMsgs, queueOutbox, shiftOutbox,
   loadDms, appendDm, markDmRead, dmKey, nodeEncKeys
 } from '../teamchat.js'
 import {
@@ -21,10 +20,6 @@ import Identity from 'keet-identity-key'
 import b4a from 'b4a'
 import path from 'node:path'
 
-// Group bot auto-replies: one mention response per bot per cooldown, and
-// never two in a row from the same bot (ping-pong guard).
-const GROUP_REPLY_COOLDOWN_MS = 45_000
-const groupReplyAt = new Map()
 // DM-to-bot agent replies: per-bot cooldown so a remote loop can't spin us.
 const DM_REPLY_COOLDOWN_MS = 20_000
 const dmReplyAt = new Map()
@@ -52,10 +47,6 @@ function humanVerify(nodeIdHex, bytes, proofHex) {
 // Slim envelope for local disk: drop sig/topic, keep what the UI needs.
 function slim(env) {
   return { id: env.id, from: env.from, text: env.text, ts: env.ts }
-}
-
-function mentionRe(name) {
-  return new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
 }
 
 // Verify a group/DM sender against the roster. Returns the sender kind or
@@ -95,7 +86,6 @@ export async function upCommand({ port, topic, home, autostart = true }) {
     teamHome: null,
     nodeId: null,
     swarm: null,
-    storeSwarm: null,
     store: null,
     writerAck: null,
     computer: { state: 'off' },
@@ -167,8 +157,15 @@ export async function upCommand({ port, topic, home, autostart = true }) {
           }
           return { ok: true }
         },
-        onPeerConn: null, // control swarm carries chat only — replication
-        // has its own swarm (see below); sharing one conn corrupts both.
+        onPeerConn: (conn) => {
+          // Replicate team-store cores over the control-swarm connection.
+          // (One swarm only — a second swarm instance breaks discovery.)
+          if (self.store?.store) {
+            try {
+              self.store.store.replicate(conn)
+            } catch { /* peer going away */ }
+          }
+        },
         onHello: (msg, remoteId) => {
           // Bind swarm device key -> identity key for DM routing.
           if (msg?.nodeId) deviceToNode.set(remoteId, msg.nodeId)
@@ -178,12 +175,6 @@ export async function upCommand({ port, topic, home, autostart = true }) {
             sendWriterRequests()
             void waitForWritable()
           }
-          // Late joiner: pull recent group history when ours is empty.
-          if (self.team && loadGroup(self.teamHome).msgs.length === 0) {
-            requestGroupCatchup(self, remoteId)
-          }
-          // Flush queued group sends now that someone is listening.
-          flushOutbox(self)
         },
         onMessage: (msg, remoteId, reply) => {
           if (msg.type === 'request-writer' && msg.topic === team.topic && self.store?.writable) {
@@ -192,10 +183,11 @@ export async function upCommand({ port, topic, home, autostart = true }) {
           } else if (msg.type === 'writer-added' && msg.ok) {
             if (self.writerAck) self.writerAck(msg)
             void waitForWritable()
-          } else if (msg.topic === team.topic && self.team && self.teamHome && CHAT_TYPES.has(msg.type)) {
-            // Team chat needs the team assigned — messages can arrive in the
+          } else if (msg.topic === team.topic && self.team && self.teamHome && DM_TYPES.has(msg.type)) {
+            // DMs need the team assigned — messages can arrive in the
             // window between swarm.join() and teamHome assignment (or after
-            // deactivate). Drop them; catch-up re-syncs on hello.
+            // deactivate). Drop them; the sender gets no receipt and fails
+            // fast with a timeout.
             handleChatMessage(self, msg, remoteId, reply)
           } else if (process.env.WAYFIND_DEBUG && (msg.type === 'request-writer' || msg.type === 'writer-added')) {
             console.error(`[debug] dropped ${msg.type} topicOk=${msg.topic === team.topic} writable=${self.store?.writable}`)
@@ -208,26 +200,18 @@ export async function upCommand({ port, topic, home, autostart = true }) {
       const keyHex = await store.open({ key: team.baseKey ?? null, identity: id })
       if (team.baseKey !== keyHex) team = updateTeamFile(teamHome, { baseKey: keyHex })
 
-      // Store replication on its own topic: corestore frames and our
-      // JSON-lines chat must never share a Noise connection.
-      const storeSwarm = new TeamSwarm({
-        nodeId: id.identityPublicKey,
-        keyPair: id.deviceKeyPair,
-        onPeerConn: (conn) => {
-          if (self.store?.store) {
-            try {
-              self.store.store.replicate(conn)
-            } catch { /* peer going away */ }
-          }
-        }
-      })
-      await storeSwarm.join(deriveStoreTopic(team.topic))
+      // Conns established before the store opened missed the replicator
+      // hook — attach replication to all current peers now.
+      for (const [, p] of swarm.peers) {
+        try {
+          store.store.replicate(p.conn)
+        } catch { /* peer going away */ }
+      }
 
       this.team = team
       this.teamHome = teamHome
       this.nodeId = id.identityPublicKey
       this.swarm = swarm
-      this.storeSwarm = storeSwarm
       this.store = store
       setActive(this.base, teamId)
       // Keep the shared view advancing: autobase only applies replicated
@@ -267,18 +251,6 @@ export async function upCommand({ port, topic, home, autostart = true }) {
           console.error('store unavailable for now:', e.message)
         }
       }
-      // Late-join catch-up + outbox flush: peers may connect after the team
-      // is assigned (their hellos arrived too early, or discovery lags).
-      // Bounded retries; each is a no-op once we're in sync.
-      for (const delay of [2000, 10000, 30000]) {
-        setTimeout(() => {
-          if (!this.team || !this.swarm) return
-          flushOutbox(this)
-          if (this.swarm.peers.size > 0 && loadGroup(this.teamHome).msgs.length === 0) {
-            requestGroupCatchup(this)
-          }
-        }, delay)
-      }
       return this.status()
     },
     async deactivate() {
@@ -289,10 +261,6 @@ export async function upCommand({ port, topic, home, autostart = true }) {
       if (this.swarm) {
         await this.swarm.destroy()
         this.swarm = null
-      }
-      if (this.storeSwarm) {
-        await this.storeSwarm.destroy()
-        this.storeSwarm = null
       }
       if (this.store) {
         await this.store.destroy()
@@ -428,34 +396,6 @@ export async function upCommand({ port, topic, home, autostart = true }) {
       return this.store.sharedBots().catch(() => [])
     },
 
-    // Group thread: local copy + live fan-out. Fail-fast on offline, never
-    // queued silently — the outbox only holds sends made while peers exist
-    // check raced discovery; UI shows queued state via /api/group.
-    async group() {
-      if (!this.team || !this.teamHome) throw new Error('no active team')
-      return loadGroup(this.teamHome)
-    },
-
-    async sendGroup(text) {
-      if (!this.team || !this.teamHome || !this.nodeId || !this.swarm) throw new Error('no active team')
-      const v = String(text ?? '').slice(0, 4000).trim()
-      if (!v) throw new Error('text is required')
-      const name = readProfile(this.teamHome)?.displayName ?? ('node-' + this.nodeId.slice(0, 6))
-      const env = {
-        v: 1, type: 'groupmsg', id: newId(), to: null,
-        from: { kind: 'human', id: this.nodeId, name },
-        text: v, ts: Date.now(), sealed: false, payload: null,
-        topic: this.team.topic, sig: ''
-      }
-      env.sig = humanSign(this.store.identity, canonicalEnvelope(env))
-      mergeGroupMsgs(this.teamHome, [slim(env)])
-      const n = this.swarm.broadcast(env)
-      if (n === 0) queueOutbox(this.teamHome, env)
-      // Own sends can wake our shared bots too (@-mention from the owner).
-      maybeGroupReply(this, slim(env)).catch(() => {})
-      return loadGroup(this.teamHome)
-    },
-
     async dms() {
       if (!this.team || !this.teamHome) throw new Error('no active team')
       return loadDms(this.teamHome)
@@ -545,9 +485,9 @@ export async function upCommand({ port, topic, home, autostart = true }) {
     }
   }
 
-  // ---- team chat engine (group + DMs, host-to-host) ----
+  // ---- DM engine (host-to-host; bots are addressed, never connected) ----
 
-  const CHAT_TYPES = new Set(['groupmsg', 'group-req', 'group-res', 'dm', 'dm-receipt'])
+  const DM_TYPES = new Set(['dm', 'dm-receipt'])
 
   // Swarm device-key id for a given identity-key node, via hello bindings.
   function routeDeviceFor(nodeId) {
@@ -556,15 +496,7 @@ export async function upCommand({ port, topic, home, autostart = true }) {
   }
 
   function handleChatMessage(self, msg, remoteId, reply) {
-    if (msg.type === 'groupmsg') {
-      handleGroupMsg(self, msg).catch((e) => console.error('groupmsg dropped:', e.message))
-    } else if (msg.type === 'group-req') {
-      const { msgs } = loadGroup(self.teamHome)
-      // Echo the requester's id back so they accept it (not our own).
-      reply({ type: 'group-res', to: msg.to, msgs: msgs.slice(-(msg.want ?? 50)).map(slim), topic: self.team.topic })
-    } else if (msg.type === 'group-res' && msg.to === self.nodeId) {
-      mergeGroupMsgs(self.teamHome, Array.isArray(msg.msgs) ? msg.msgs : [])
-    } else if (msg.type === 'dm') {
+    if (msg.type === 'dm') {
       handleDm(self, msg, remoteId, reply).catch((e) => console.error('dm dropped:', e.message))
     } else if (msg.type === 'dm-receipt' && pendingDm.has(msg.id)) {
       const p = pendingDm.get(msg.id)
@@ -572,83 +504,6 @@ export async function upCommand({ port, topic, home, autostart = true }) {
       clearTimeout(p.timer)
       p.resolve(msg)
     }
-  }
-
-  function requestGroupCatchup(self, targetDeviceId) {
-    if (!self.swarm || !self.team) return
-    const req = { type: 'group-req', want: 50, to: self.nodeId, topic: self.team.topic }
-    if (targetDeviceId) {
-      self.swarm.sendTo(targetDeviceId, req)
-    } else {
-      for (const [id] of self.swarm.peers) {
-        self.swarm.sendTo(id, req)
-        break
-      }
-    }
-  }
-
-  function flushOutbox(self) {
-    if (!self.swarm || !self.team || self.swarm.peers.size === 0) return
-    for (;;) {
-      const env = shiftOutbox(self.teamHome)
-      if (!env) return
-      self.swarm.broadcast(env)
-    }
-  }
-
-  async function handleGroupMsg(self, msg) {
-    if (!msg?.id || !msg.from || typeof msg.text !== 'string' || typeof msg.ts !== 'number' || !msg.sig) return
-    const kind = await verifySender(self.store, msg.from, canonicalEnvelope(msg), msg.sig)
-    if (!kind) {
-      console.error('groupmsg bad signature from', String(msg.from?.id ?? '?').slice(0, 8))
-      return
-    }
-    mergeGroupMsgs(self.teamHome, [slim(msg)])
-    maybeGroupReply(self, slim(msg)).catch(() => {})
-  }
-
-  async function maybeGroupReply(self, msg) {
-    const ownBots = loadBots(self.teamHome, self.nodeId)
-    // Never answer our own echoes.
-    if (msg.from.kind === 'bot' && ownBots.some((b) => b.id === msg.from.id)) return
-    const mentioned = ownBots.filter((b) => b.shared && mentionRe(b.name).test(msg.text ?? ''))
-    if (mentioned.length === 0) return
-    const recent = loadGroup(self.teamHome).msgs.slice(-15)
-    for (const bot of mentioned) {
-      if (busyBots.has(bot.id)) continue
-      if (Date.now() - (groupReplyAt.get(bot.id) ?? 0) < GROUP_REPLY_COOLDOWN_MS) continue
-      if (recent.slice(-2).every((m) => m.from.kind === 'bot' && m.from.id === bot.id)) continue
-      groupReplyAt.set(bot.id, Date.now())
-      busyBots.add(bot.id)
-      try {
-        const ctx = recent.map((m) => `${m.from.name}: ${m.text}`).join('\n')
-        const updated = await runTurn({
-          teamDir: self.teamHome, nodeId: self.nodeId, botId: bot.id,
-          text: `[team group chat]\n${ctx}\n\n${msg.from.name} mentioned you (@${bot.name}). Reply as one short group message:`,
-          store: self.store, home: self.base
-        })
-        const reply = [...updated.msgs].reverse().find((m) => m.t !== 'u' && m.t !== 'tool')
-        if (reply?.x) await sendGroupAsBot(self, bot, String(reply.x).slice(0, 2000))
-      } catch (e) {
-        console.error(`group reply failed for ${bot.name}:`, e.message)
-      } finally {
-        busyBots.delete(bot.id)
-      }
-    }
-  }
-
-  async function sendGroupAsBot(self, bot, text) {
-    const sec = botSecret(self.teamHome, self.nodeId, bot.id)
-    if (!sec) return
-    const env = {
-      v: 1, type: 'groupmsg', id: newId(), to: null,
-      from: { kind: 'bot', id: bot.id, name: bot.name },
-      text, ts: Date.now(), sealed: false, payload: null,
-      topic: self.team.topic, sig: ''
-    }
-    env.sig = edSign(sec, canonicalEnvelope(env))
-    mergeGroupMsgs(self.teamHome, [slim(env)])
-    self.swarm?.broadcast(env)
   }
 
   // Outbound DM: resolve recipient, seal when possible, await receipt.
