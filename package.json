@@ -1,0 +1,17 @@
+{
+  "name": "wayfind",
+  "version": "0.1.0",
+  "description": "Wayfind CLI — login once, run agent sandboxes on Wayfind Cloud",
+  "type": "module",
+  "bin": {
+    "wayfind": "./bin/wayfind.js"
+  },
+  "scripts": {
+    "start": "node ./bin/wayfind.js start",
+    "login": "node ./bin/wayfind.js login"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
