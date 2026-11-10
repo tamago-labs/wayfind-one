@@ -14,5 +14,11 @@
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "dotenv": "^18.0.10",
+    "ethers": "^6.17.0",
+    "jose": "^6.2.17",
+    "tsx": "^4.23.15"
+  }
 }

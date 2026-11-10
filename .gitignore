@@ -8,5 +8,9 @@ computer.zip
 exec.zip
 
 .env.local
+scripts/near-ai-tests/.env
+scripts/near-ai-tests/.near-proof-state.json
+scripts/near-ai-tests/.attestation-report.json
+scripts/near-ai-tests/.receipt-example.json
 
 .*-image-state.json
