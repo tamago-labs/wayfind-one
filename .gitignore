@@ -1,0 +1,10 @@
+node_modules/
+dist/
+stage/
+.DS_Store
+.wayfind/
+*.zip
+computer.zip
+exec.zip
+
+.env.local.*-image-state.json
