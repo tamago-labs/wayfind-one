@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { MessagesSquare } from 'lucide-react'
 import Sidebar from './app/Sidebar'
 import ChatMain from './app/ChatMain'
 import ConnectModal from './app/ConnectModal'
 import SettingsModal from './app/SettingsModal'
 import NewBotModal from './app/NewBotModal'
 import BotPanel, { type BotEdits } from './app/BotPanel'
+import GroupPanel from './app/GroupPanel'
 import { useStatus, displayNameOf } from './hooks/useStatus'
+import { useTeamChat } from './hooks/useTeamChat'
 import { api, type Bot } from './lib/api'
 
 export default function App() {
@@ -20,8 +23,11 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false)
   const [botModalOpen, setBotModalOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [groupOpen, setGroupOpen] = useState(false)
 
   const hasTeam = status !== null && status.team !== null
+  const chat = useTeamChat(hasTeam)
+  const unread = chat.groupUnread + chat.dmUnread
 
   // Auto-open the connect modal when there is no team yet (first run).
   if (hasTeam && dismissed) setDismissed(false)
@@ -136,6 +142,30 @@ export default function App() {
           onSave={saveBot}
           onDelete={deleteBot}
         />
+      )}
+      {hasTeam && (
+        <GroupPanel
+          open={groupOpen}
+          onClose={() => setGroupOpen(false)}
+          status={status}
+          selfName={displayNameOf(status)}
+          chat={chat}
+        />
+      )}
+      {hasTeam && !groupOpen && (
+        <button
+          onClick={() => setGroupOpen(true)}
+          aria-label="Open team chat"
+          title="Team chat"
+          className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-cta text-white shadow-lg hover:bg-ctahover"
+        >
+          <MessagesSquare className="h-6 w-6" strokeWidth={2} />
+          {unread > 0 && (
+            <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full bg-bcoral px-1.5 text-xs font-bold text-white">
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </button>
       )}
       <NewBotModal
         open={botModalOpen}

@@ -5,9 +5,15 @@ import Hyperbee from 'hyperbee'
 import b4a from 'b4a'
 import Identity from 'keet-identity-key'
 
-// Shared team database (goji-shaped): one Autobase + Hyperbee view per team.
+// Shared team database: one Autobase + Hyperbee view per team.
 // Tables: members/<nodeId>, invites/<nonce>, tasks/<taskId>,
-//   provider-config (single row), provider-keys/<id>.
+//   provider-config (single row), provider-keys/<id>, bots/<botId>.
+// Member rows are signed: proof = attestData(canonical bytes) with the
+// member's device key; apply() drops anything that does not verify against
+// the row's nodeId (which IS the keet identity key — binding is direct).
+// Bot ads use the same pattern: the OWNER node signs its own bots' ads, so
+// only the owner can publish or withdraw them. Ads carry pubkey + metadata
+// only — never secrets.
 // Member rows are signed: proof = attestData(canonical bytes) with the
 // member's device key; apply() drops anything that does not verify against
 // the row's nodeId (which IS the keet identity key — binding is direct).
@@ -19,8 +25,31 @@ import Identity from 'keet-identity-key'
 // Anyone who ever joins keeps a copy: rotate shared keys when membership
 // changes (`POST /api/providers/keys` overwrites).
 
-export function canonicalMember({ nodeId, displayName, updatedAt }) {
-  return b4a.from(JSON.stringify({ nodeId, displayName, updatedAt }), 'utf8')
+export function canonicalMember({ nodeId, displayName, updatedAt, encPub }) {
+  // encPub rides outside the legacy proof so old rows keep verifying;
+  // rows that carry it are verified WITH it (see applyBatch).
+  const base = { nodeId, displayName, updatedAt }
+  return encPub
+    ? b4a.from(JSON.stringify({ ...base, encPub }), 'utf8')
+    : b4a.from(JSON.stringify(base), 'utf8')
+}
+
+// Roster ad for one shared bot. Owner-signed, owner-withdrawable.
+export function canonicalBotAd({ botId, ownerNodeId, pubkey, encPub, name, color, shape, isChiefOfStaff, updatedAt }) {
+  return b4a.from(JSON.stringify({
+    botId, ownerNodeId, pubkey, encPub: encPub ?? '', name, color, shape,
+    isChiefOfStaff: isChiefOfStaff === true, updatedAt
+  }), 'utf8')
+}
+
+function verifyIdentity(proofHex, canonicalBytes, nodeIdHex) {
+  try {
+    return Identity.verify(b4a.from(proofHex, 'hex'), canonicalBytes, {
+      expectedIdentity: b4a.from(nodeIdHex, 'hex')
+    })
+  } catch {
+    return false
+  }
 }
 
 async function applyBatch(nodes, view, base) {
@@ -30,13 +59,34 @@ async function applyBatch(nodes, view, base) {
     try {
       if (v.op === 'member') {
         if (!v.nodeId || typeof v.displayName !== 'string' || typeof v.updatedAt !== 'number' || !v.proof) continue
-        const ok = Identity.verify(b4a.from(v.proof, 'hex'), canonicalMember(v), {
-          expectedIdentity: b4a.from(v.nodeId, 'hex')
-        })
+        const ok = v.encPub
+          ? verifyIdentity(v.proof, canonicalMember(v), v.nodeId)
+          : verifyIdentity(
+              v.proof,
+              b4a.from(JSON.stringify({ nodeId: v.nodeId, displayName: v.displayName, updatedAt: v.updatedAt }), 'utf8'),
+              v.nodeId
+            )
         if (!ok) continue
         const cur = await view.get('members/' + v.nodeId)
         if (!cur || v.updatedAt > cur.value.updatedAt) {
           await view.put('members/' + v.nodeId, v)
+        }
+      } else if (v.op === 'bot-ad') {
+        // Only the owner node can publish its bots' ads. updatedAt wins.
+        if (!v.botId || !v.ownerNodeId || !v.pubkey || typeof v.updatedAt !== 'number' || !v.proof) continue
+        if (!verifyIdentity(v.proof, canonicalBotAd(v), v.ownerNodeId)) continue
+        const cur = await view.get('bots/' + v.botId)
+        if (!cur || v.updatedAt > cur.value.updatedAt) {
+          await view.put('bots/' + v.botId, v)
+        }
+      } else if (v.op === 'bot-remove') {
+        // Withdrawal must come from the same owner that published the ad.
+        if (!v.botId || !v.ownerNodeId || typeof v.updatedAt !== 'number' || !v.proof) continue
+        const bytes = b4a.from(JSON.stringify({ botId: v.botId, ownerNodeId: v.ownerNodeId, updatedAt: v.updatedAt }), 'utf8')
+        if (!verifyIdentity(v.proof, bytes, v.ownerNodeId)) continue
+        const cur = await view.get('bots/' + v.botId).catch(() => null)
+        if (cur && cur.value.ownerNodeId === v.ownerNodeId) {
+          await view.del('bots/' + v.botId)
         }
       } else if (v.op === 'invite') {
         if (!v.nonce || !v.createdBy) continue
@@ -114,13 +164,14 @@ export class TeamStore {
     return this.base?.view ?? null
   }
 
-  async appendMember(displayName) {
+  async appendMember(displayName, encPub) {
     const op = {
       op: 'member',
       nodeId: this.identity.identityPublicKey,
       displayName: String(displayName).slice(0, 64),
       updatedAt: Date.now()
     }
+    if (encPub) op.encPub = String(encPub)
     const proof = Identity.attestData(
       canonicalMember(op),
       this.identity.deviceKeyPair,
@@ -158,6 +209,51 @@ export class TeamStore {
 
   async members() {
     return this.list('members/')
+  }
+
+  // Shared-bot roster ads. Owner-signed; only the owner publishes.
+  async appendBotAd({ botId, pubkey, encPub, name, color, shape, isChiefOfStaff }) {
+    const op = {
+      op: 'bot-ad',
+      botId: String(botId),
+      ownerNodeId: this.identity.identityPublicKey,
+      pubkey: String(pubkey),
+      encPub: String(encPub ?? ''),
+      name: String(name ?? '').slice(0, 40),
+      color: String(color ?? ''),
+      shape: String(shape ?? ''),
+      isChiefOfStaff: isChiefOfStaff === true,
+      updatedAt: Date.now()
+    }
+    const proof = Identity.attestData(
+      canonicalBotAd(op),
+      this.identity.deviceKeyPair,
+      this.identity.deviceProof
+    )
+    await this.base.append({ ...op, proof: b4a.toString(proof, 'hex') })
+  }
+
+  async appendBotRemove(botId) {
+    const op = {
+      op: 'bot-remove',
+      botId: String(botId),
+      ownerNodeId: this.identity.identityPublicKey,
+      updatedAt: Date.now()
+    }
+    // Sign the canonical triple (no `op` field) — must match applyBatch.
+    const bytes = b4a.from(JSON.stringify({
+      botId: op.botId, ownerNodeId: op.ownerNodeId, updatedAt: op.updatedAt
+    }), 'utf8')
+    const proof = Identity.attestData(
+      bytes,
+      this.identity.deviceKeyPair,
+      this.identity.deviceProof
+    )
+    await this.base.append({ ...op, proof: b4a.toString(proof, 'hex') })
+  }
+
+  async sharedBots() {
+    return this.list('bots/')
   }
 
   async invites() {

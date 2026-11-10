@@ -9,6 +9,7 @@ export interface BotEdits {
   name: string
   role: string
   isChiefOfStaff: boolean
+  shared: boolean
   color: MascotColor
   shape: MascotShape
 }
@@ -53,12 +54,24 @@ function short(v?: string | null): string {
 export default function BotPanel({ bot, computer, open, onClose, onSave, onDelete }: Props) {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const [shareError, setShareError] = useState<string | null>(null)
   const v: BotEdits = {
     name: bot.name,
     role: bot.role,
     isChiefOfStaff: bot.isChiefOfStaff ?? false,
+    shared: bot.shared ?? false,
     color: bot.color as MascotColor,
     shape: bot.shape as MascotShape,
+  }
+
+  const toggleShare = async () => {
+    if (sharing) return
+    setSharing(true)
+    setShareError(null)
+    const err = await onSave({ ...v, shared: !v.shared })
+    setSharing(false)
+    if (err) setShareError(err)
   }
 
   return (
@@ -111,7 +124,40 @@ export default function BotPanel({ bot, computer, open, onClose, onSave, onDelet
           <Row label="Stored">
             <span className="font-bold text-navy">This machine only</span>
           </Row>
+          <Row label="Share to team">
+            <button
+              onClick={() => void toggleShare()}
+              disabled={sharing}
+              role="switch"
+              aria-checked={v.shared}
+              aria-label="Share bot to team"
+              title={v.shared ? 'Visible in group chat — click to unshare' : 'Publish to the team roster'}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-60 ${
+                v.shared ? 'bg-cta' : 'bg-navy/15'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                  v.shared ? 'left-[1.375rem]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </Row>
         </div>
+        {v.shared ? (
+          <p className="mt-2 px-1 text-xs text-heroslate">
+            Shared — the team can message {bot.name} in group chat and DMs.
+          </p>
+        ) : (
+          <p className="mt-2 px-1 text-xs text-heroslate">
+            Private — only you can chat with {bot.name}.
+          </p>
+        )}
+        {shareError && (
+          <p className="mt-1 px-1 text-xs font-medium text-bcoral" role="alert">
+            {shareError}
+          </p>
+        )}
 
         <p className="mt-5 px-1 text-xs font-bold uppercase tracking-wider text-heroslate">Computer</p>
         <div className="mt-2 space-y-2 text-sm" title={computer?.error ?? ''}>

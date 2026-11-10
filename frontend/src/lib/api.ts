@@ -13,6 +13,43 @@ export interface Member {
   nodeId: string
   displayName: string
   updatedAt: number
+  encPub?: string
+}
+
+export interface SharedBotAd {
+  botId: string
+  ownerNodeId: string
+  pubkey: string
+  encPub: string
+  name: string
+  color: string
+  shape: string
+  isChiefOfStaff?: boolean
+  updatedAt: number
+}
+
+export interface ChatFrom {
+  kind: 'human' | 'bot'
+  id: string
+  name: string
+}
+
+export interface GroupMsg {
+  id: string
+  from: ChatFrom
+  text: string
+  ts: number
+}
+
+export interface DmMsg extends GroupMsg {
+  sealed: boolean
+  out: boolean
+}
+
+export interface DmThread {
+  peer: ChatFrom
+  msgs: DmMsg[]
+  unread: number
 }
 
 export interface Status {
@@ -21,10 +58,12 @@ export interface Status {
   joined: boolean
   topic?: string | null
   peers: Peer[]
+  online?: string[]
   store?: { writable: boolean }
   computer?: { state: string; container?: string; image?: string; workspace?: string; error?: string }
   provider?: { provider: string; model: string; hasKey: boolean } | null
   members: Member[]
+  sharedBots?: SharedBotAd[]
   invites?: unknown[]
   teams: TeamRef[]
 }
@@ -34,6 +73,7 @@ export interface Bot {
   name: string
   role: string
   isChiefOfStaff?: boolean
+  shared?: boolean
   color: string
   shape: string
   msgs: { t: string; x?: string }[]

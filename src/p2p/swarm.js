@@ -10,6 +10,17 @@ export function deriveTopic(teamIdHex, teamSecretHex) {
     .digest('hex')
 }
 
+// Store replication runs on its OWN topic/swarm. Corestore replication and
+// our JSON-lines chat protocol both write raw bytes — sharing one Noise
+// connection corrupts both streams (chat survives only because parse
+// failures are silently ignored). Separate streams, no framing fights.
+export function deriveStoreTopic(topicHex) {
+  return createHash('sha256')
+    .update('wayfind-one/v1/store')
+    .update(b4a.from(topicHex, 'hex'))
+    .digest('hex')
+}
+
 // One swarm per daemon. Topic-as-capability: only holders of the team
 // secrets can derive (and therefore discover) the topic. Connections are
 // Noise-encrypted + key-authenticated by Hyperswarm itself.
@@ -38,6 +49,30 @@ export class TeamSwarm {
   announceLocal() {
     for (const [, peer] of this.peers) {
       this._send(peer.conn, { type: 'hello', nodeId: this.nodeId, topic: this.topic, ...this.localInfo })
+    }
+  }
+
+  // Fan-out to every connected peer (group chat, presence).
+  broadcast(obj) {
+    let n = 0
+    for (const [, peer] of this.peers) {
+      try {
+        peer.conn.write(JSON.stringify(obj) + '\n')
+        n++
+      } catch { /* peer going away */ }
+    }
+    return n
+  }
+
+  // Targeted send by swarm (device-key) peer id. Returns false if offline.
+  sendTo(remoteId, obj) {
+    const peer = this.peers.get(remoteId)
+    if (!peer) return false
+    try {
+      peer.conn.write(JSON.stringify(obj) + '\n')
+      return true
+    } catch {
+      return false
     }
   }
 

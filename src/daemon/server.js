@@ -160,6 +160,58 @@ export function startServer({ port, ctrl }) {
     }
   })
 
+  // Team group chat: local copy of the shared thread + live fan-out.
+  app.get('/api/group', async (req, res) => {
+    try {
+      res.json({ ok: true, ...(await ctrl.group()) })
+    } catch (err) {
+      res.status(/no active team/.test(String(err?.message ?? err)) ? 409 : 500)
+        .json({ ok: false, error: String(err?.message ?? err) })
+    }
+  })
+
+  app.post('/api/group', async (req, res) => {
+    try {
+      res.json({ ok: true, ...(await ctrl.sendGroup(req.body?.text)) })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      res.status(/no active team/.test(msg) ? 409 : /text is required/.test(msg) ? 400 : 500)
+        .json({ ok: false, error: msg })
+    }
+  })
+
+  // DMs: per-counterparty threads on local disk (never the shared store).
+  app.get('/api/dms', async (req, res) => {
+    try {
+      res.json({ ok: true, ...(await ctrl.dms()) })
+    } catch (err) {
+      res.status(/no active team/.test(String(err?.message ?? err)) ? 409 : 500)
+        .json({ ok: false, error: String(err?.message ?? err) })
+    }
+  })
+
+  app.post('/api/dms', async (req, res) => {
+    try {
+      res.json({ ok: true, ...(await ctrl.sendDm(req.body?.to, req.body?.text)) })
+    } catch (err) {
+      const msg = String(err?.message ?? err)
+      const http = /no active team/.test(msg) ? 409
+        : /text is required|recipient is required/.test(msg) ? 400
+        : /offline|not shared|unknown member/.test(msg) ? 502
+        : 500
+      res.status(http).json({ ok: false, error: msg })
+    }
+  })
+
+  app.post('/api/dms/read', async (req, res) => {
+    try {
+      res.json({ ok: true, thread: await ctrl.markDmRead(req.body?.key) })
+    } catch (err) {
+      res.status(/no active team/.test(String(err?.message ?? err)) ? 409 : 500)
+        .json({ ok: false, error: String(err?.message ?? err) })
+    }
+  })
+
   // Provider selection + shared keys. Key values are write-only:
   // GET reports which providers have keys, never the keys themselves.
   // Shared keys replicate to every member device — rotate on membership

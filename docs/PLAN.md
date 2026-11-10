@@ -74,7 +74,7 @@ We make a precise claim, not a magical one. The workspace has four data domains:
 
 ## Architecture
 
-> Target architecture. **Built today:** daemon, P2P swarm (discovery + invites), shared team store (members/invites/provider config+keys), owner-private bots + chat UI with tool execution, Docker computer (auto-start, network on), inference via OpenAI-compatible providers (Meta default). **Planned:** policy engine + approvals, attestation verification, group chat + DMs, task claims (only if needed).
+> Target architecture. **Built today:** daemon, P2P swarm (discovery + invites), shared team store (members/invites/provider config+keys/bot roster ads), owner-private bots + chat UI with tool execution, Docker computer (auto-start, network on), inference via OpenAI-compatible providers (Meta default), team group chat + sealed DMs with shared bots (mention auto-replies). **Planned:** policy engine + approvals, attestation verification, task claims (only if needed).
 
 ```
  Teammate A (laptop)                              Teammate B (laptop / VPS)
@@ -257,14 +257,17 @@ Every tool call a bot makes passes the policy engine first. Sensitive actions cr
 
 ### 5. Web UI
 
-Served by the daemon on localhost. Built: **Team** (members, online status, peers). Planned:
+Served by the daemon on localhost. Built: **Team** (members, online status, peers), **Team chat** (floating button: group thread with participant strip + DMs tab, sealed indicator, unread badges), **Bots** (owner-local rows, share-to-team toggle).
 
-- **Group chat + DMs:** team channel, @-mentions routed to bot owners, member-to-bot DMs
-- **Bots:** list roster bots, create owner-local bots, role and tools
-- **Tasks:** create, status, who is running it
-- **Approvals:** pending, approve/reject, history
-- **Privacy:** attestation status, last verification time, "verify now" button, per-reply proof
-- **Audit:** append-only log of calls, approvals and policy changes
+### 6. Team chat (built: group + DMs, host-to-host)
+
+- **Sharing is opt-in per bot.** A "Share to team" toggle publishes a roster ad (`bots/<botId>`: pubkey + metadata, never secrets) to the shared store; unsharing withdraws it. Only the owner node can publish/withdraw its bots' ads (owner-signed, like members).
+- **One swarm per daemon.** Bots never join the swarm — they are addressed (`botId → ownerNodeId` via the ad), and owner daemons multiplex envelopes over their own connection. Bot availability = owner availability; messaging an offline owner's bot fails fast.
+- **Two topics, not one.** Control/chat messages (JSON lines) and corestore replication (binary frames) must never share a Noise connection — they corrupt each other. Chat runs on the team topic; store replication on a derived store topic (sha256 of the team topic). The daemon also polls `base.update()` every 5s while active so the view keeps advancing after writer onboarding.
+- **Envelopes, signed.** Group messages fan out to all peers; DMs route to the recipient owner's connection with a delivery receipt (8s timeout). Human senders authenticate with keet device attestations, bots with per-bot ed25519 keys (generated at creation, secret never leaves the owner disk). Receivers verify against the members table / roster ads before delivery; bad signatures and unknown senders are dropped.
+- **DMs are sealed when possible.** Each node and each bot holds an x25519 key (pubkey in the member row / bot ad). Senders seal the payload with static ECDH + AES-GCM and include their own pubkey; the envelope shows a lock in the UI. Without the recipient's pubkey the message still sends transport-only (Noise + topic-gated), flagged `sealed:false`. DM threads live only on the two endpoints' disks — never in the shared store — so no separate history sync is needed: both sides store at delivery.
+- **Bots answer.** Shared bots auto-reply when @-mentioned in group (45s cooldown per bot, no two-in-a-row, never answers its own echoes) and when DM'd by a human (20s cooldown). Bot-to-bot DMs are stored, never auto-answered (loop guard by construction). Replies run the normal agent turn, so tool use works in chat.
+- Late-join catch-up: empty group pulls the last 50 messages from the first peer that says hello (plus retries at 2s/10s/30s after boot for the discovery race).
 
 ## Policy file
 
@@ -407,7 +410,7 @@ Takeaway: RED's proxy exists because its agent runs *inside* the untrusted guest
 - Hypercore event storage + Autobase team coordination (shared roster, task queue)
 - Owner-local bots + sandbox runner (Docker)
 - Inference v1 (built): OpenAI-compatible providers via @openai/agents, `providers.json` catalog, provider+model selection + shared keys replicated in the team store, keys never enter Docker. Local models are just another catalog entry.
-- Group chat + DMs routed to owner nodes (deferred — needs the agent loop first)
+- Group chat + DMs routed to owner nodes (built — see §6; needs the agent loop first was the blocker, now done)
 - Task claiming: execution IDs, leases, fencing, idempotency, recovery after disconnect (deferred — only if a real double-work problem shows up)
 
 ### Phase 3 — Private AI
@@ -430,7 +433,9 @@ Takeaway: RED's proxy exists because its agent runs *inside* the untrusted guest
 
 ## Limitations
 
-- Connectivity: DHT discovery can take ~10–60 s; strict NATs may need the planned relay.
+- Connectivity: DHT discovery can take ~10–60 s; strict NATs may need the planned relay. Chat catch-up retries at 2s/10s/30s to cover the discovery race.
+- Messaging an offline owner's bot (or offline member) fails fast — no store-and-forward yet.
+- Unverified senders are dropped silently (bad signature, withdrawn ad, unknown member).
 - Execution trust: the owner machine sees task inputs; a compromised owner host breaks that bot's privacy.
 - Revocation: removing a member rotates keys but cannot erase already-copied data.
 - No exactly-once execution: partitions or crashes can duplicate attempts — idempotency keys + approvals mitigate, not eliminate.
