@@ -27,33 +27,21 @@ verified through approval. Locked decisions: **Option A** (snapshot sync),
 
 ## The product shape (locked): sandbox backend, not a harness
 
-Wayfind does not compete with opencode/Claude Code — it plugs into them.
-The local agent loop is **not built**; instead we ship harness adapters
-against the exec sandbox:
+Wayfind does not compete with opencode/Claude Code — it plugs into them
+through one lean CLI. No local agent loop is built, no MCP configuration
+is required, no plugin to install:
 
-- **MCP server (primary adapter).** Lives **inside the sandbox**
-  (`POST /mcp`, Streamable HTTP, stateless): `exec/read/write/edit/glob/
-  grep/sync_in/sync_out` — same implementations as the REST routes, no
-  agent loop. Harnesses connect through the relay
-  (`/sandbox/proxy/mcp` + session headers): Claude Code / Cursor /
-  opencode / Windsurf drive sandbox tools natively; the harness, model,
-  and keys stay where the user already has them. Verified locally:
-  initialize → tools/list (8) → tools/call round-trip.
-- **stdio bridge (removed).** Deleted `packages/mcp`: everything the
-  harness needs lives in the image + relay. No local adapters, no
-  exceptions. Consequence (now required, not optional): the relay must
-  resolve the caller's active session from the `Authorization` bearer
-  alone (SandboxSession rows: ownerId → sandboxId + sessionToken), so
-  static harness configs work with one long-lived token. Session
-  lifecycle (provision on first use, idle TTL, terminate) moves
-  server-side.
-- **opencode plugin (tight adapter).** Following near-red's
-  `plugin/index.ts` pattern: replace/shim opencode's built-in tools with
-  sandbox-routed versions (stdin/stdout bridge, per-call audit). Lower
-  latency than MCP for the opencode-native path, same backend.
-- **Thin CLI `run` (standalone).** One-shot `exec` against a provisioned
-  session + snapshot sync for users with no harness. No turn loop, no
-  MCP client, no approvals UI — out of scope by design.
+- **`wayfind run` is the interface** — for humans and for Claude Code
+  alike. One-shot provision → push → exec → pull → terminate, plus
+  `export`/`status`/`stop`. A Claude Code user points the agent at the
+  workspace and tells it to use the CLI. Zero harness setup.
+- The in-sandbox tool surface (REST + `POST /mcp`, 8 tools, no loop, no
+  keys) is the execution backend the CLI drives. The MCP endpoint stays
+  available but nothing in P1 is built against it.
+
+This kills the hidden costs on every side: no harness rebuild, no fat
+image with a loop, no per-harness adapter matrix. One CLI, one image,
+one relay.
 
 This kills the hidden cost in the old workstream 1 (rebuilding a harness)
 and the fat-image cost of putting the loop in the sandbox. The exec agent
@@ -94,36 +82,32 @@ already implemented, uncommitted in wayfind-cloud):
 
 Exit: image builds, provision/proxy/terminate verified live against AWS.
 
-## Workstream 2 — harness adapters (the product surface)
+## Workstream 2 — CLI as the interface (humans and Claude alike)
 
-No local loop, no local bridge. Two adapters, same backend:
+No plugin, no MCP configuration. The harness question is settled by
+making the CLI so lean that Claude Code just runs it:
+`wayfind run "..."` provisions (or reuses), pushes the snapshot, execs,
+pulls the diff, terminates. A Claude Code user points the agent at the
+workspace and tells it to use the CLI — zero MCP JSON, zero extra
+config, nothing to learn. MCP requires per-harness setup that normal
+users will not do; a CLI command is universal.
 
-1. **In-sandbox MCP server (done, needs image rebuild).** `POST /mcp` in
-   the exec agent — 8 tools, same implementations as REST. Harnesses
-   connect via `/sandbox/proxy/mcp` with static config (one CliToken);
-   the relay resolves the active session server-side (SandboxSession
-   rows — now required work, see below).
-2. **opencode plugin (second).** Near-red `plugin/index.ts` pattern:
-   shim opencode's built-in tools to route through the same provision/
-   proxy calls (stdin/stdout bridge, per-call audit log). For the
-   opencode-native path where MCP latency matters.
-3. **Thin CLI `run` (third).** One-shot provision → push snapshot →
-   `exec` → pull diff → terminate, plus `export`/`status`/`stop`
-   wrappers. No turn loop — standalone use only. (The deprecated stdio
-   bridge is deleted; CLI talks REST directly.)
+- **Thin CLI `run`.** One-shot provision → push snapshot → `exec` →
+  pull diff → terminate, plus `export`/`status`/`stop` wrappers.
+  No turn loop, no MCP client.
+- The in-sandbox `POST /mcp` endpoint stays in the image as an available
+  transport (built, verified, zero maintenance), but it is NOT the
+  product path — no adapters are built against it in P1.
 
-Exit: Claude Code runs shell commands in a disposable Wayfind sandbox
-via MCP; opencode does the same via plugin; CLI does one-shots.
+Exit: anyone (human or Claude Code) runs disposable-sandbox commands
+through one CLI, no configuration beyond `wayfind login`.
 
-**SandboxSession rows (required by the no-bridge decision).**
+**SandboxSession rows (required for session reuse).**
 `{ownerId, sandboxId, sessionTokenHash?, provisionedAt}` — owner-scoped,
-function + owner-read (CreditLedger shape). The relay looks up the
-caller's live session instead of trusting caller-supplied headers;
-provision creates it, terminate/proxy-heal updates it, idle TTL sweeps
-it. Without this, static harness configs cannot work.
-
-Exit: Claude Code runs shell commands in a disposable Wayfind sandbox
-via MCP; opencode does the same via plugin; CLI does one-shots.
+function + owner-read (CreditLedger shape). Lets `run` reuse a warm
+session instead of booting per invocation, powers `status`, and gives
+metering exact wall-clock. Provision creates it, terminate/proxy-heal
+updates it, idle TTL sweeps it.
 
 ## Workstream 3 — dashboard D1 (parallel with 1)
 

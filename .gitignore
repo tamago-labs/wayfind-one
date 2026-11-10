@@ -7,4 +7,6 @@ stage/
 computer.zip
 exec.zip
 
-.env.local.*-image-state.json
+.env.local
+
+.*-image-state.json
