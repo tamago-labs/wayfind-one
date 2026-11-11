@@ -8,8 +8,20 @@
 // readable by any signed-in user; `wayfind image-trust` verifies it offline.
 import { loadState, need } from './config';
 
+import { homedir } from 'os';
+import { join } from 'path';
+import { readFileSync } from 'fs';
+
 async function main(): Promise<void> {
   const secret = need('IMAGE_TRUST_SECRET');
+  // Publisher identity: the CLI login (same account that owns the backend).
+  const credsPath = join(homedir(), '.wayfind', 'credentials.json');
+  let bearer = '';
+  try {
+    bearer = (JSON.parse(readFileSync(credsPath, 'utf8')) as { token?: string }).token ?? '';
+  } catch {
+    throw new Error(`not logged in — run the wayfind CLI login first (looked for ${credsPath})`);
+  }
   const api = (process.env.WAYFIND_API_URL ?? 'https://td4dfiwfkmwp32gyqfzxb7axly0kbrwg.lambda-url.ap-southeast-1.on.aws').replace(/\/+$/, '');
   const st = loadState();
   if (!st.imageArn || !st.zipSha256) {
@@ -17,7 +29,7 @@ async function main(): Promise<void> {
   }
   const res = await fetch(`${api}/image-trust/publish`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
     body: JSON.stringify({
       imageArn: st.imageArn,
       imageVersion: st.imageVersion ?? '1.0',

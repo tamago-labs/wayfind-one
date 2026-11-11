@@ -14,14 +14,14 @@ export async function evidence(rawArgs) {
   let id = '';
   let out = '';
   let decrypt = false;
-  while (args.length) {
-    const flag = args.shift();
-    if (flag === '--out' || flag === '-o') out = args.shift() ?? '';
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (flag === '--out' || flag === '-o') out = args[++i] ?? '';
     else if (flag === '--decrypt') decrypt = true;
     else if (flag.startsWith('--')) {
       console.error(`Unknown flag: ${flag}`);
       process.exit(1);
-    } else id = flag;
+    } else if (!id) id = flag;
   }
   if (!id) {
     console.error('Usage: wayfind evidence <conversationId> [--out bundle.json] [--decrypt]');
