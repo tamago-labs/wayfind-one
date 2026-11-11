@@ -8,18 +8,26 @@ import {
   checkpointBlob,
   conversationKeys,
   createConversation,
+  exportEvidence,
+  getPolicy,
+  imageTrust,
+  listAudit,
   listConversations,
+  putPolicy,
   pushWorkspace,
   relayMessage,
   terminateConversation,
+  verificationReports,
   verifyReceiptServer,
+  type AuditEvent,
+  type Policy,
 } from '@/lib/wayfind';
 import { checkReceipt } from '@/lib/receipt';
 import VerificationWidget from '@/components/VerificationWidget';
 import { TranscriptEntry, openEnvelope, verifyTranscript } from '@/lib/envelope';
 import { BotRow, listBots } from '@/lib/data';
 
-type Tab = 'bots' | 'conversations' | 'verify';
+type Tab = 'new' | 'bots' | 'conversations' | 'verify' | 'activity' | 'settings';
 
 const LEVELS = [
   { id: 'standard', label: 'Standard — isolated execution' },
@@ -406,10 +414,27 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
   );
 }
 
+function NewTab({ onCreated }: { onCreated: (id: string) => void }) {
+  const [bots, setBots] = useState<BotRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    listBots().then(setBots).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+  return (
+    <div>
+      <h1 className="text-2xl font-bold">New conversation</h1>
+      <p className="mt-1 text-sm text-ink">Pick a bot, model, and security level — a disposable VM boots for this session only.</p>
+      <Err message={error} />
+      <div className="mt-4 max-w-3xl">
+        <NewConversationForm bots={bots} onCreated={onCreated} />
+      </div>
+    </div>
+  );
+}
+
 function ConversationsTab({ openRequest }: { openRequest: string | null }) {
   const [convs, setConvs] = useState<ConversationMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [bots, setBots] = useState<BotRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -422,7 +447,6 @@ function ConversationsTab({ openRequest }: { openRequest: string | null }) {
 
   useEffect(() => {
     refresh();
-    listBots().then(setBots).catch(() => {});
   }, [refresh]);
 
   useEffect(() => {
@@ -437,15 +461,6 @@ function ConversationsTab({ openRequest }: { openRequest: string | null }) {
       <h1 className="text-2xl font-bold">Conversations</h1>
       <p className="mt-1 text-sm text-ink">One conversation = one disposable execution session.</p>
       <Err message={error} />
-      <div className="mt-4">
-        <NewConversationForm
-          bots={bots}
-          onCreated={(id) => {
-            setOpenId(id);
-            refresh();
-          }}
-        />
-      </div>
       <div className="mt-4 space-y-2">
         {(convs ?? []).map((c) => (
           <div key={c.conversationId} className="rounded-xl border border-navy/10 bg-white px-4 py-3">
@@ -468,6 +483,164 @@ function ConversationsTab({ openRequest }: { openRequest: string | null }) {
           </div>
         ))}
         {convs !== null && convs.length === 0 && <p className="text-sm text-ink">No conversations yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+function ActivityTab() {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [filter, setFilter] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const out = await listAudit({ conversationId: filter.trim() || undefined, limit: 100 });
+      setEvents(out.events);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function download(convId: string) {
+    setExporting(convId);
+    setError(null);
+    try {
+      const bundle = await exportEvidence(convId);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wayfind-evidence-${convId.slice(0, 8)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold">Activity</h1>
+      <p className="mt-1 text-sm text-ink">Append-only audit trail. Evidence bundles download as JSON (sealed blobs decrypt with <span className="font-mono">wayfind evidence --decrypt</span> or the history view).</p>
+      <div className="mt-4 flex gap-2">
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by conversation id…" className="w-80 rounded-lg border border-navy/15 px-3 py-2 text-sm text-navy" />
+        <button onClick={refresh} disabled={busy} className="rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover disabled:opacity-50">Refresh</button>
+      </div>
+      <Err message={error} />
+      <div className="mt-4 space-y-1">
+        {(events ?? []).map((e, i) => (
+          <div key={`${e.at}-${i}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-navy/10 bg-white px-3 py-2 text-xs">
+            <span className="font-mono text-ink">{e.at ? new Date(e.at).toLocaleString() : '?'}</span>
+            <span className="rounded-full bg-mist px-2 py-0.5 text-navy">{e.action}</span>
+            {e.conversationId && (
+              <>
+                <CopyId id={e.conversationId} />
+                <button
+                  onClick={() => download(e.conversationId as string)}
+                  disabled={exporting !== null}
+                  className="rounded border border-navy/15 px-2 py-0.5 text-ink hover:bg-mist disabled:opacity-50"
+                >
+                  {exporting === e.conversationId ? 'Exporting…' : 'Evidence'}
+                </button>
+              </>
+            )}
+            {e.detail != null && <span className="truncate text-ink">{JSON.stringify(e.detail).slice(0, 140)}</span>}
+          </div>
+        ))}
+        {events !== null && events.length === 0 && <p className="text-sm text-ink">No audit events yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+function SettingsTab() {
+  const [policy, setPolicy] = useState<Policy | null>(null);
+  const [level, setLevel] = useState('none');
+  const [models, setModels] = useState('');
+  const [ttl, setTtl] = useState('1800');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [trust, setTrust] = useState<{ imageArn?: string | null; imageVersion?: string | null; zipSha256?: string | null; sbomSha256?: string | null; builtAt?: string | null; signature?: { kid?: string } | null } | null>(null);
+
+  useEffect(() => {
+    getPolicy().then((o) => {
+      setPolicy(o.policy);
+      setLevel(o.policy.mandatoryLevel);
+      setModels((o.policy.allowedModels ?? []).join(', '));
+      setTtl(String(o.policy.maxIdleTtlSeconds));
+    }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    imageTrust().then((o) => setTrust(o.imageTrust)).catch(() => {});
+  }, []);
+
+  async function save() {
+    setError(null);
+    setSaved(false);
+    try {
+      const out = await putPolicy({
+        mandatoryLevel: level as Policy['mandatoryLevel'],
+        allowedModels: models.split(',').map((s) => s.trim()).filter(Boolean),
+        maxIdleTtlSeconds: Number(ttl) || 1800,
+      });
+      setPolicy(out.policy);
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold">Settings</h1>
+      <p className="mt-1 text-sm text-ink">Execution policy is enforced server-side at provision time. Violations fail closed.</p>
+      <Err message={error} />
+      <div className="mt-4 max-w-2xl rounded-xl border border-navy/10 bg-white p-4">
+        <p className="font-semibold text-navy">Policy {policy ? '' : '(loading…)'}</p>
+        <label className="mt-3 block text-sm text-ink">
+          Minimum security level
+          <select value={level} onChange={(e) => setLevel(e.target.value)} className="mt-1 w-full rounded-lg border border-navy/15 px-2 py-1.5 text-navy">
+            <option value="none">none — allow anything curated</option>
+            <option value="standard">standard — isolated execution minimum</option>
+            <option value="verified_inference">verified_inference — attested inference required</option>
+          </select>
+        </label>
+        <label className="mt-3 block text-sm text-ink">
+          Allowed models (comma-separated, empty = curated list)
+          <input value={models} onChange={(e) => setModels(e.target.value)} placeholder="Qwen/Qwen3.8-27B" className="mt-1 w-full rounded-lg border border-navy/15 px-2 py-1.5 font-mono text-xs text-navy" />
+        </label>
+        <label className="mt-3 block text-sm text-ink">
+          Max idle TTL (seconds)
+          <input value={ttl} onChange={(e) => setTtl(e.target.value)} inputMode="numeric" className="mt-1 w-full rounded-lg border border-navy/15 px-2 py-1.5 text-navy" />
+        </label>
+        <button onClick={save} className="mt-3 rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover">Save policy</button>
+        {saved && <p className="mt-2 text-sm text-green-700">Saved and enforced on the next provision.</p>}
+      </div>
+      <div className="mt-4 max-w-2xl rounded-xl border border-navy/10 bg-white p-4">
+        <p className="font-semibold text-navy">Sandbox image trust</p>
+        {!trust && <p className="mt-2 text-sm text-ink">Loading…</p>}
+        {trust && (
+          <div className="mt-2 text-xs text-ink">
+            <p className="break-all font-mono">{trust.imageArn ?? '(none published)'}</p>
+            <p className="mt-1">version {trust.imageVersion ?? '?'} · built {trust.builtAt ?? '?'}</p>
+            <p className="break-all">zip sha256: {trust.zipSha256 ?? '?'}</p>
+            <p>sbom: {trust.sbomSha256 ?? 'not recorded'}</p>
+            <p>signed kid: {trust.signature?.kid ?? 'unsigned'} · verify offline with <span className="font-mono">wayfind image-trust</span></p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -568,8 +741,9 @@ function VerifyTab() {
 }
 
 export default function OneShell({ email }: { email?: string }) {
-  const [tab, setTab] = useState<Tab>('bots');
+  const [tab, setTab] = useState<Tab>('new');
   const [openRequest, setOpenRequest] = useState<string | null>(null);
+  const tabs: Tab[] = ['new', 'bots', 'conversations', 'verify', 'activity', 'settings'];
   return (
     <div className="flex min-h-screen bg-mist">
       <aside className="flex w-64 flex-col border-r border-navy/10 bg-white">
@@ -578,7 +752,7 @@ export default function OneShell({ email }: { email?: string }) {
           <p className="truncate text-xs text-ink">{email}</p>
         </div>
         <nav className="flex flex-col gap-1 p-3 text-sm">
-          {(['bots', 'conversations', 'verify'] as Tab[]).map((t) => (
+          {tabs.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -595,6 +769,14 @@ export default function OneShell({ email }: { email?: string }) {
         </div>
       </aside>
       <main className="flex-1 p-8">
+        {tab === 'new' && (
+          <NewTab
+            onCreated={(id) => {
+              setOpenRequest(id);
+              setTab('conversations');
+            }}
+          />
+        )}
         {tab === 'bots' && (
           <BotsTab
             onCreated={(id) => {
@@ -605,6 +787,8 @@ export default function OneShell({ email }: { email?: string }) {
         )}
         {tab === 'conversations' && <ConversationsTab openRequest={openRequest} />}
         {tab === 'verify' && <VerifyTab />}
+        {tab === 'activity' && <ActivityTab />}
+        {tab === 'settings' && <SettingsTab />}
       </main>
     </div>
   );

@@ -118,3 +118,38 @@ export async function verifyReceiptServer(receipt: unknown): Promise<{ ok: boole
 export async function verificationReports(id: string, chatId?: string): Promise<{ reports: unknown[] }> {
   return apiFetch(`/conversations/${id}/verification-reports${chatId ? `?chatId=${encodeURIComponent(chatId)}` : ''}`);
 }
+
+export interface Policy {
+  mandatoryLevel: 'none' | 'standard' | 'verified_inference';
+  allowedModels: string[];
+  maxIdleTtlSeconds: number;
+}
+
+export async function getPolicy(): Promise<{ policy: Policy }> {
+  return apiFetch('/policy');
+}
+
+export async function putPolicy(body: Partial<Policy>): Promise<{ ok: boolean; policy: Policy }> {
+  return apiFetch('/policy', { method: 'PUT', body });
+}
+
+export interface AuditEvent {
+  at: string | null;
+  actor: string | null;
+  action: string | null;
+  conversationId: string | null;
+  detail: unknown;
+}
+
+export async function listAudit(opts: { conversationId?: string; limit?: number } = {}): Promise<{ events: AuditEvent[] }> {
+  const qs = new URLSearchParams({ limit: String(opts.limit ?? 50), ...(opts.conversationId ? { conversationId: opts.conversationId } : {}) });
+  return apiFetch(`/audit?${qs.toString()}`);
+}
+
+export async function exportEvidence(id: string): Promise<unknown> {
+  return apiFetch(`/conversations/${id}/export-evidence`, { method: 'POST', body: {} });
+}
+
+export async function imageTrust(): Promise<{ imageTrust: { imageArn: string | null; imageVersion: string | null; zipSha256: string | null; sbomSha256: string | null; builtAt: string | null; publishedAt: string | null; signature: { kid?: string; algo?: string; sig?: string } | null } }> {
+  return apiFetch('/image-trust');
+}
