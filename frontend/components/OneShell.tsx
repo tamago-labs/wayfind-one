@@ -359,6 +359,28 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
   const [chainOk, setChainOk] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function downloadEvidence() {
+    setExporting(true);
+    setError(null);
+    try {
+      const bundle = await exportEvidence(conv.conversationId);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wayfind-evidence-${conv.conversationId.slice(0, 8)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function loadHistory() {
     setLoading(true);
@@ -393,9 +415,14 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
       <p>Closed · checkpoints {(conv.checkpointManifest?.length ? conv.checkpointManifest.length : conv.receipt?.checkpointManifest?.length) ?? 0} · {conv.receipt ? 'receipt present — see Verify tab' : 'no receipt'}</p>
       {conv.receipt?.inference && <VerificationWidget conversationId={conv.conversationId} />}
       {entries === null && (
-        <button onClick={loadHistory} disabled={loading} className="mt-2 rounded-lg border border-navy/15 px-3 py-1 hover:bg-mist disabled:opacity-50">
-          {loading ? 'Decrypting…' : 'Load history (decrypted client-side)'}
-        </button>
+        <div className="mt-2 flex gap-2">
+          <button onClick={loadHistory} disabled={loading} className="rounded-lg border border-navy/15 px-3 py-1 hover:bg-mist disabled:opacity-50">
+            {loading ? 'Decrypting…' : 'Load history (decrypted client-side)'}
+          </button>
+          <button onClick={downloadEvidence} disabled={exporting} className="rounded-lg border border-navy/15 px-3 py-1 hover:bg-mist disabled:opacity-50">
+            {exporting ? 'Exporting…' : 'Download evidence bundle'}
+          </button>
+        </div>
       )}
       {entries !== null && entries.length === 0 && <p className="mt-2">No checkpoints recorded.</p>}
       {entries !== null && entries.length > 0 && (
