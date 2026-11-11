@@ -29,6 +29,30 @@ function Err({ message }: { message: string | null }) {
   return <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
 }
 
+function CopyId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = id;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <button onClick={copy} title="Copy full conversation id" className="rounded px-1 font-mono text-xs text-ink hover:bg-mist">
+      {id.slice(0, 8)}… {copied ? 'copied' : 'copy'}
+    </button>
+  );
+}
+
 function BotsTab({ onCreated }: { onCreated: (id: string) => void }) {
   const [bots, setBots] = useState<BotRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -270,7 +294,8 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
     <div className="mt-4 rounded-xl border border-navy/10 bg-white p-4">
       <div className="flex items-center justify-between">
         <p className="font-mono text-xs text-ink">
-          {id.slice(0, 8)}… {verified === true && <span className="text-green-700">· chain verified</span>}{verified === false && <span className="text-red-700">· chain BROKEN</span>}
+          <CopyId id={id} />
+          {verified === true && <span className="text-green-700">· chain verified</span>}{verified === false && <span className="text-red-700">· chain BROKEN</span>}
           {evidence?.preflight && <span className="text-green-700"> · attested ({evidence.preflight.nodes ?? 0} TEE node{(evidence.preflight.nodes ?? 0) === 1 ? '' : 's'})</span>}
         </p>
         <button onClick={terminate} disabled={busy} className="rounded-lg border border-red-200 px-3 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">
@@ -422,7 +447,7 @@ function ConversationsTab({ openRequest }: { openRequest: string | null }) {
         {(convs ?? []).map((c) => (
           <div key={c.conversationId} className="rounded-xl border border-navy/10 bg-white px-4 py-3">
             <button onClick={() => setOpenId(openId === c.conversationId ? null : c.conversationId)} className="flex w-full items-center justify-between text-left">
-              <span className="font-mono text-xs text-navy">{c.conversationId.slice(0, 8)}… · {c.model}</span>
+              <span className="font-mono text-xs text-navy"><CopyId id={c.conversationId} /> · {c.model}</span>
               <span className={`rounded-full px-2 py-0.5 text-xs ${c.status === 'live' ? 'bg-green-100 text-green-800' : 'bg-mist text-ink'}`}>{c.status}</span>
             </button>
             {openId === c.conversationId && c.status === 'live' && (
