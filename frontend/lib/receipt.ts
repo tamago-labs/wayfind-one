@@ -39,5 +39,16 @@ export function checkReceipt(r: ReceiptV0 | null | undefined): { ok: boolean; ch
   }
   ok &&= push('terminated after provisioned', timeOk);
   ok &&= push('VM cleanup verified at terminate', r?.cleanup?.vmTerminated === true);
+  const inf = (r as unknown as { inference?: unknown })?.inference as {
+    preflight?: { nonceEchoed?: boolean; modelTee?: string[]; nodes?: number; nvidia?: { overall?: boolean; nonceMatch?: boolean; gpus?: number } };
+    messages?: Array<{ checked?: boolean; valid?: boolean }>;
+  } | null;
+  if (inf) {
+    const msgs = Array.isArray(inf.messages) ? inf.messages : [];
+    const checked = msgs.filter((m) => m?.checked);
+    ok &&= push('inference responses verified vs retained attestation', checked.length > 0 && checked.every((m) => m.valid === true), `${checked.filter((m) => m.valid).length}/${checked.length} checked valid`);
+    ok &&= push('preflight nonce fresh, model TEEs present', inf.preflight?.nonceEchoed === true && (inf.preflight?.modelTee?.length ?? 0) > 0);
+    ok &&= push('NVIDIA verdict clean at preflight', inf.preflight?.nvidia?.overall === true && inf.preflight?.nvidia?.nonceMatch === true);
+  }
   return { ok, checks };
 }

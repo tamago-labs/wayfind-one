@@ -79,21 +79,69 @@ disposable, every transfer sealed, no user-held keys.
 ## Phase 2 — verifiable execution
 
 Goal: every Phase-1 claim independently checkable; enterprise-ready.
+Two upstream integrations carry most of the weight: the NEAR inference
+SDK (E2EE + preflight verification + `verifyResponse`) and the embedded
+Verification Center widget (iframe + `VerificationReport[]`). Our 06
+policy stays the trust anchor — the widget validates report *structure*
+only, never evidence.
 
-1. **Port the verifier.** `06-policy-gate.ts` becomes the core of website
-   + CLI `verify`: fresh nonce, preflight-before-completion, kind/shape
-   match, exact-candidate signer, fail closed everywhere.
-2. **Signed receipts.** Control-plane signature (Amplify secret → KMS);
-   `verify` checks it offline. Format unchanged from v0.
-3. **Image trust.** Cosign/Sigstore signing, SBOM, reproducible builds,
-   pinned kernel/runtimes; execution shows image digest + signature.
-4. **Audit trail.** Append-only per-tenant log (who ran what, where,
-   policy/image/model, retention controls).
-5. **Policies.** Per-customer egress allowlists, attestation-required
-   toggle (fails closed), per-workspace mandatory levels, curated-model
-   expansion — each new model passes 00–07 before it ships.
-6. **Enterprise billing.** Quotas → plans, usage reconciliation reports,
-   DPA-ready evidence exports.
+### 2.0 Proof scripts first (same convention, `scripts/near-ai-tests/`)
+- `08-sdk-verify`: SDK `verifyResponse()` on Qwen3.8-27B, non-stream —
+  must agree with 04's manual checks (hashes, signer, kind).
+- `09-sdk-stream`: streamed chat, consume fully, `verifyResponse` after —
+  proves the streaming path keeps evidence (gateway kind).
+- `10-sdk-e2ee`: E2EE round-trip to a verified model key.
+- `11-widget-reports`: convert 06 + 07 output into `VerificationReport[]`
+  (model scope: `provider_tee` + `gpuEvidence`; gateway scope: `gateway`
+  + `tlsBinding`) and render through the documented iframe flow locally.
+- Each new model passes 00–07 + 08–11 before it ships.
+
+### 2.1 In-VM inference on the SDK
+- `/ai` moves from raw fetch to `@nearai/inference-sdk/node` (image is
+  already node:24-alpine, SDK-compatible): preflight gateway + model
+  verification, TCB policy (`UpToDate` default, strictest per policy),
+  E2EE for `verified_inference`, `verifyResponse()` per reply.
+- **Streaming default** (recommended): stream for UX, verify after full
+  consume, record `signatureKind` in the message result. Non-stream stays
+  for attestation-grade tasks. `bot/message` returns first tokens fast +
+  verification summary on completion.
+- Message result gains: `signatureKind`, `verification: { preflight,
+  tcb, gpuEvidence|tlsBinding, responseVerified }` — the exact fields the
+  receipt and widget reports are built from.
+
+### 2.2 Signed receipts + server policy
+- Receipts signed by the control plane (Amplify secret now, KMS upgrade
+  path — format fixed, signer upgrades). `verify` (CLI + website) checks
+  signatures offline; v0 `observed` receipts keep verifying as unsigned.
+- Model registry with security metadata (provider, model identity,
+  attestation support, verification status, permitted levels, TCB
+  policy). Open-weight ≠ confidential, enforced in data not docs.
+- Per-customer policies: mandatory levels per workspace, egress
+  allowlists, attestation-required toggle — all fail closed. Usage
+  reconciliation + quotas land here (skipped in Phase 1).
+
+### 2.3 Verification UI (widget-embedded)
+- Website verification panel embeds the Verification Center iframe;
+  `getReports()` serves our `VerificationReport[]` built from stored
+  session evidence (model + gateway attestation summaries, response
+  signatures). **Verify again** re-runs 06 against retained candidates.
+- History entries show inference badges (kind, signer, TCB) from the
+  message results; closed conversations show receipt + signature state.
+- Never send chat content, keys, or raw SDK output into reports —
+  select fields explicitly per the widget contract.
+
+### 2.4 Image + execution trust
+- Cosign/Sigstore signing, SBOM, reproducible builds, pinned
+  kernel/runtimes; execution shows image digest + signature.
+- Append-only per-tenant audit log (who ran what, where, policy/image/
+  model, retention controls). DPA-ready evidence export = receipt +
+  transcript chain + widget reports.
+- Strict-confidential stays gated on the Phase 3 Nitro backend; until
+  then the level renders disabled with the reason shown.
+
+### 2.5 Enterprise billing
+- Quotas → plans, usage reconciliation reports, per-conversation cost
+  attribution (inference + execution), invoice-ready exports.
 
 ## Explicitly out
 

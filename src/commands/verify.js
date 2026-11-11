@@ -38,6 +38,19 @@ export function checkReceipt(r) {
   }
   results.push(check('terminated after provisioned', timeOk, `${r?.provisionedAt ?? '?'} → ${r?.terminatedAt ?? '?'}`));
   results.push(check('VM cleanup verified at terminate', r?.cleanup?.vmTerminated === true, String(r?.cleanup?.vmTerminated)));
+  // Inference evidence (present when the agent ran attestation checks).
+  // Absent on older/standard-tier receipts — noted, not failed.
+  const inf = r?.inference ?? null;
+  if (inf) {
+    const msgs = Array.isArray(inf.messages) ? inf.messages : [];
+    const checked = msgs.filter((m) => m?.checked);
+    const allValid = checked.length > 0 && checked.every((m) => m.valid === true);
+    results.push(check('inference responses verified vs retained attestation', allValid, `${checked.filter((m) => m.valid).length}/${checked.length} checked valid`));
+    results.push(check('preflight nonce fresh, model TEEs present', inf.preflight?.nonceEchoed === true && (inf.preflight?.modelTee?.length ?? 0) > 0, `${inf.preflight?.nodes ?? 0} node(s)`));
+    results.push(check('NVIDIA verdict clean at preflight', inf.preflight?.nvidia?.overall === true && inf.preflight?.nvidia?.nonceMatch === true, inf.preflight?.nvidia ? `${inf.preflight.nvidia.gpus} GPUs` : 'no GPU evidence'));
+  } else {
+    console.log('  NOTE  no inference evidence block (older receipt or standard tier)');
+  }
   if (r?.class !== 'signed' && r?.class !== 'hardware-attested') {
     console.log('  NOTE  unsigned v0: integrity checked, authenticity not proven (Phase 2 signs receipts)');
   }

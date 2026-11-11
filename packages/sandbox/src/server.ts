@@ -12,7 +12,7 @@ import { handleMcp } from './mcp.js';
 import { hasSession } from './session.js';
 import { run as runExec } from './tools/exec.js';
 import { editTool, readEncTool, readTool, writeTool } from './tools/files.js';
-import { botInitTool, botMessageTool, botTranscriptTool, checkpointTool } from './tools/bot.js';
+import { botInitTool, botMessageTool, botTranscriptTool, checkpointTool, evidenceTool } from './tools/bot.js';
 import { aiTool } from './tools/ai.js';
 import { globTool, grepTool } from './tools/search.js';
 import { syncInTool, syncOutTool } from './tools/sync.js';
@@ -133,6 +133,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
     if (route === 'POST /checkpoint') {
       return json(res, 200, await checkpointTool.run());
+    }
+    if (route === 'POST /bot/evidence' || route === 'GET /bot/evidence') {
+      return json(res, 200, await evidenceTool.run());
     }
 
     return json(res, 404, { error: 'unknown route' });

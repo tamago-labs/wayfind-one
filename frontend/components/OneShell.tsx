@@ -96,6 +96,7 @@ function NewConversationForm({
   const [system, setSystem] = useState('You are a helpful assistant. Answer concisely.');
   const [first, setFirst] = useState('');
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
@@ -106,13 +107,17 @@ function NewConversationForm({
     setBusy(true);
     setError(null);
     try {
+      setStage('Provisioning disposable VM…');
       const created = await createConversation({
         ...(botId ? { botId } : {}),
         model,
         securityLevel: level,
       });
+      setStage('Initializing bot + verifying attestation…');
       await relayMessage(created.conversationId, 'bot/init', { system, model });
+      setStage('Running first inference…');
       await relayMessage(created.conversationId, 'bot/message', { content: first.trim() });
+      setStage(null);
       onCreated(created.conversationId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -164,7 +169,7 @@ function NewConversationForm({
         disabled={busy}
         className="mt-3 rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover disabled:opacity-50"
       >
-        {busy ? 'Provisioning disposable VM…' : 'Start private conversation'}
+        {busy ? (stage ?? 'Working…') : 'Start private conversation'}
       </button>
       <Err message={error} />
     </div>
@@ -178,12 +183,20 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
   const [error, setError] = useState<string | null>(null);
   const [verified, setVerified] = useState<boolean | null>(null);
   const [attachInfo, setAttachInfo] = useState<string | null>(null);
+  const [stage, setStage] = useState<string | null>(null);
+  const [evidence, setEvidence] = useState<{ preflight?: { nodes?: number; nvidia?: { gpus?: number } | null } | null; messages?: Array<{ kind?: string; signer?: string | null; valid?: boolean; checked?: boolean }> } | null>(null);
 
   const load = useCallback(async () => {
     try {
       const t = await relayMessage<{ entries: TranscriptEntry[]; verified: boolean }>(id, 'bot/transcript', {});
       setEntries(t.entries ?? []);
       setVerified(t.verified);
+      try {
+        const ev = await relayMessage<{ preflight?: { nodes?: number; nvidia?: { gpus?: number } | null } | null; messages?: Array<{ kind?: string; signer?: string | null; valid?: boolean; checked?: boolean }> }>(id, 'bot/evidence', {});
+        setEvidence(ev);
+      } catch {
+        // Older images lack /bot/evidence — badges stay hidden.
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -196,11 +209,14 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
   async function send() {
     if (!draft.trim()) return;
     setBusy(true);
+    setStage('Thinking — inference runs inside the disposable VM…');
     setError(null);
     try {
       await relayMessage(id, 'bot/message', { content: draft.trim() });
       setDraft('');
+      setStage('Verifying response…');
       await load();
+      setStage(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -253,20 +269,32 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
   return (
     <div className="mt-4 rounded-xl border border-navy/10 bg-white p-4">
       <div className="flex items-center justify-between">
-        <p className="font-mono text-xs text-ink">{id.slice(0, 8)}… {verified === true && <span className="text-green-700">· chain verified</span>}{verified === false && <span className="text-red-700">· chain BROKEN</span>}</p>
+        <p className="font-mono text-xs text-ink">
+          {id.slice(0, 8)}… {verified === true && <span className="text-green-700">· chain verified</span>}{verified === false && <span className="text-red-700">· chain BROKEN</span>}
+          {evidence?.preflight && <span className="text-green-700"> · attested ({evidence.preflight.nodes ?? 0} TEE node{(evidence.preflight.nodes ?? 0) === 1 ? '' : 's'})</span>}
+        </p>
         <button onClick={terminate} disabled={busy} className="rounded-lg border border-red-200 px-3 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">
           Terminate + destroy VM
         </button>
       </div>
       <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
-        {(entries ?? []).map((e) => (
-          <div key={e.seq} className={`rounded-lg px-3 py-2 text-sm ${e.role === 'user' ? 'bg-mist text-navy' : 'bg-green-50 text-navy'}`}>
-            <p className="text-xs font-semibold uppercase text-ink">{e.role}</p>
-            <p className="whitespace-pre-wrap">{e.content}</p>
-          </div>
-        ))}
+        {(entries ?? []).map((e) => {
+          const v = evidence?.messages?.find((m) => m && typeof m === 'object' && (m as { seq?: number }).seq === e.seq) as { kind?: string; signer?: string | null; valid?: boolean; checked?: boolean } | undefined;
+          return (
+            <div key={e.seq} className={`rounded-lg px-3 py-2 text-sm ${e.role === 'user' ? 'bg-mist text-navy' : 'bg-green-50 text-navy'}`}>
+              <p className="text-xs font-semibold uppercase text-ink">
+                {e.role}
+                {e.role === 'assistant' && v?.checked && (
+                  <span className={v.valid ? 'text-green-700 normal-case' : 'text-red-700 normal-case'}> · {v.valid ? `verified ${v.kind}` : 'UNVERIFIED'}</span>
+                )}
+              </p>
+              <p className="whitespace-pre-wrap">{e.content}</p>
+            </div>
+          );
+        })}
         {entries !== null && entries.length === 0 && <p className="text-sm text-ink">No messages yet.</p>}
       </div>
+      {stage && <p className="mt-2 text-xs italic text-ink">{stage}</p>}
       <div className="mt-3 flex gap-2">
         <input
           value={draft}

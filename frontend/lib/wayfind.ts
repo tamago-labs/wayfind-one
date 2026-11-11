@@ -54,6 +54,19 @@ export interface ReceiptV0 {
   provisionedAt: string | null;
   terminatedAt: string | null;
   cleanup?: { vmTerminated?: boolean };
+  inference?: {
+    preflight?: {
+      at?: string; nonce?: string; model?: string; nodes?: number;
+      nonceEchoed?: boolean; modelTee?: string[]; gateway?: string[];
+      nvidia?: { overall?: boolean; nonceMatch?: boolean | null; gpus?: number } | null;
+    } | null;
+    messages?: Array<{
+      seq?: number; chatId?: string | null; checked?: boolean; kind?: string;
+      kindMatch?: boolean; requestHashMatch?: boolean; responseHashMatch?: boolean;
+      modelMatch?: boolean | null; signer?: string | null; valid?: boolean; error?: string;
+    }>;
+    verified?: boolean;
+  } | null;
 }
 
 export async function listConversations(): Promise<ConversationMeta[]> {
