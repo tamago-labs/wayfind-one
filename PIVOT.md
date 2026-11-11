@@ -95,7 +95,7 @@ documented future for pure-chat tasks, not launch scope.
     it to another provider is explicit and policy-controlled.
 12. **Security levels:** three execution policies —
     `standard` (isolated ephemeral execution, sealed transfer, integrity
-    checks, signed Wayfind receipts), `verified-inference` (+ verified
+    checks, signed Wayfind receipts), `verified_inference` (+ verified
     NEAR inference attestation, model identity, inference integrity),
     `strict-confidential` (+ hardware-attested execution, approved
     measurements, attestation-gated key release). Sensible task defaults,

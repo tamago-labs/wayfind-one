@@ -12,6 +12,8 @@ import { handleMcp } from './mcp.js';
 import { hasSession } from './session.js';
 import { run as runExec } from './tools/exec.js';
 import { editTool, readEncTool, readTool, writeTool } from './tools/files.js';
+import { botInitTool, botMessageTool, botTranscriptTool, checkpointTool } from './tools/bot.js';
+import { aiTool } from './tools/ai.js';
 import { globTool, grepTool } from './tools/search.js';
 import { syncInTool, syncOutTool } from './tools/sync.js';
 
@@ -109,6 +111,28 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     // GET and POST both: browsers/probes use GET, the MCP relay always POSTs.
     if (route === 'GET /sync/out' || route === 'POST /sync/out') {
       return json(res, 200, await syncOutTool.run());
+    }
+    if (route === 'POST /bot/init') {
+      const body = (await readBody(req)) as { system?: unknown; model?: unknown; provider?: unknown };
+      return json(
+        res,
+        200,
+        await botInitTool.run({ system: body.system as string | undefined, model: body.model as string | undefined, provider: body.provider as string | undefined }),
+      );
+    }
+    if (route === 'POST /bot/message') {
+      const body = (await readBody(req)) as { content?: unknown };
+      return json(res, 200, await botMessageTool.run({ content: body.content as string }));
+    }
+    if (route === 'POST /bot/transcript' || route === 'GET /bot/transcript') {
+      return json(res, 200, await botTranscriptTool.run());
+    }
+    if (route === 'POST /ai') {
+      const body = (await readBody(req)) as { prompt?: unknown; model?: unknown };
+      return json(res, 200, await aiTool.run({ prompt: body.prompt as string, model: body.model as string | undefined }));
+    }
+    if (route === 'POST /checkpoint') {
+      return json(res, 200, await checkpointTool.run());
     }
 
     return json(res, 404, { error: 'unknown route' });

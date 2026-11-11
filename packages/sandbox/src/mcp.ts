@@ -9,6 +9,8 @@ import { json, readBody } from './http.js';
 import { editTool, readEncTool, readTool, writeTool } from './tools/files.js';
 import { globTool, grepTool } from './tools/search.js';
 import { syncInTool, syncOutTool } from './tools/sync.js';
+import { botInitTool, botMessageTool, botTranscriptTool, checkpointTool } from './tools/bot.js';
+import { aiTool } from './tools/ai.js';
 import * as execTool from './tools/exec.js';
 
 export const mcp = new McpServer({ name: 'wayfind-sandbox', version: '0.1.0' });
@@ -17,7 +19,7 @@ mcp.registerTool(execTool.name, { description: execTool.description, inputSchema
   content: [{ type: 'text' as const, text: JSON.stringify(await execTool.run(args)) }],
 }));
 
-for (const t of [readTool, readEncTool, writeTool, editTool, globTool, grepTool, syncInTool, syncOutTool] as Array<{
+for (const t of [readTool, readEncTool, writeTool, editTool, globTool, grepTool, syncInTool, syncOutTool, botInitTool, botMessageTool, botTranscriptTool, checkpointTool, aiTool] as Array<{
   name: string;
   description: string;
   schema: z.ZodTypeAny;

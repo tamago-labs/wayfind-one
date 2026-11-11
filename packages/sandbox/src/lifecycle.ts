@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MIN_SESSION_TOKEN_LEN, WORKSPACE_DIR } from './config.js';
 import { json, readBody } from './http.js';
-import { hasSession, setSessionToken } from './session.js';
+import { hasSession, setAiCredentials, setSessionToken, type AiCredentials } from './session.js';
 
 const RT = '/aws/lambda-microvms/runtime/v1';
 
@@ -50,13 +50,25 @@ export async function handleLifecycle(
     return true;
   }
   if (RUN.has(route)) {
-    const body = (await readBody(req)) as { sessionToken?: unknown };
+    const body = (await readBody(req)) as { sessionToken?: unknown; aiCredentials?: unknown };
     if (typeof body.sessionToken === 'string') {
       if (body.sessionToken.length < MIN_SESSION_TOKEN_LEN) {
         json(res, 400, { error: 'sessionToken must be at least 16 chars' });
         return true;
       }
       setSessionToken(body.sessionToken);
+    }
+    // Optional per-boot inference credential (memory-only). Shape:
+    // { provider, key, model? }. Absent → /ai fails closed (503).
+    const ac = body.aiCredentials as Partial<AiCredentials> | undefined;
+    if (ac && typeof ac === 'object') {
+      if (typeof ac.provider === 'string' && typeof ac.key === 'string' && ac.provider && ac.key) {
+        setAiCredentials({
+          provider: ac.provider,
+          key: ac.key,
+          ...(typeof ac.model === 'string' && ac.model ? { model: ac.model } : {}),
+        });
+      }
     }
     mkdirSync(WORKSPACE_DIR, { recursive: true });
     json(res, 200, { ok: true, workspace: WORKSPACE_DIR, session: hasSession() });
