@@ -2,91 +2,69 @@
 
 > Private AI execution you can verify.
 
-Ephemeral environments for verifiable private AI.
-Bring your data. Choose your AI. Verify where it runs.
+**Hackathon Highlights**
+- Private conversations with AI bots running in **disposable Firecracker microVMs** — destroyed after every session, verified on destroy
+- **Attested NEAR AI inference**: hardware attestation checked before the first prompt, every response signature verified against it
+- **Signed execution receipts**: who ran what, where, on which image and model, with what evidence — checkable offline with one command
+- **Independent verification**: CLI checks, website panel, and the official NEAR Verification Center widget must all agree
+- Judge path takes ~10 minutes, no cloud account needed beyond a Wayfind login and a NEAR key we provide
+
+## Overview
+
+Regulated teams, IP-heavy companies, and consultancies all face the same blocker: the useful AI lives behind someone else's API, and sending proprietary source code, contracts, financials, or patient data to a chatbot is a non-starter for legal, security, and compliance. Self-hosting models and infrastructure instead is a platform project most teams cannot staff.
+
+Wayfind ONE occupies the middle: a managed website plus a CLI where you upload a workspace, pick a task and model, run it in an isolated disposable machine with attested inference, and get the result **plus evidence**. Security reviews stop being meetings about trust and become files a pipeline can check.
+
+The backend lives in a separate repo, [`../wayfind-cloud`](../wayfind-cloud) (Next.js 14 + Amplify Gen 2: auth, data, the `wayfind-api` function, storage). This repo holds the website frontend, the CLI, the sandbox agent image, the NEAR attestation proof kit, and the product docs.
+
+## Quick links
+
+| Resource | Link |
+|---|---|
+| Repo | this directory (`wayfind-one/`) |
+| Product thesis | [`PIVOT.md`](PIVOT.md) |
+| Build plan | [`PLAN-P1.md`](PLAN-P1.md) |
+| Attestation evidence | [`scripts/near-ai-tests/FINDINGS.md`](scripts/near-ai-tests/FINDINGS.md) |
+| Backend repo | [`../wayfind-cloud`](../wayfind-cloud) |
+| NEAR verification docs | https://docs.near.ai/cloud/verification |
+
+## Background
+
+AI help arrived in three generations. Each added power — and each still demands something a serious team can't spare:
+
+| Generation | What it added | What it still demands |
+|---|---|---|
+| Chat (2022 onwards) | Answers on demand — ask anything, get a draft | Your files: copy-paste out, no memory, no proof anything happened |
+| Agents (2024 onwards) | Act in your tools — runs commands, touches real data | Your trust: you hold the keys, the logs, the bill — and take the auditor's word for none of it |
+| Verifiable execution (now) | Isolated runs + attested inference + signed receipts | Nothing to verify against — until Wayfind |
+
+## System overview
+
+Wayfind gives every conversation a private computer and a paper trail — a disposable Firecracker microVM that runs the task, gets attested inference from NEAR AI, and is destroyed afterwards, leaving only evidence.
+
+- **The bot:** authored once, deployed as a sealed bundle — or skip it and chat ad-hoc. Either way it runs *inside* the disposable machine, not in your browser.
+- **The computer:** one microVM per conversation, workspace pushed in sealed, used for tools and files, terminated and verified gone at the end.
+- **The trust:** attestation checked before the first prompt, every response signature verified, checkpoint chain sealed, receipt signed — then history decrypts client-side and anyone can re-verify.
+
+## User flow
+
+The 10-minute judge path. Website and CLI are interchangeable — pick either:
+
+1. **Log in.** CLI: `node bin/wayfind.js login`, approve the code. Website: same account, direct login.
+2. **Run once.** `node bin/wayfind.js run --dir ./demo -- 'echo hello'` — executed remotely, diff pulled back, VM destroyed. Try `--keep`, `status`, `export`, `stop`.
+3. **Chat with a bot.** `node bin/wayfind.js chat "Review for injection bugs" --new` — reply arrives with a `verified provider_tee` label and signer address.
+4. **Do it on the website.** Open a bot card → live view opens provisioned. Attach a file, ask about its contents — the bot reads the sealed workspace.
+5. **Terminate and look back.** History decrypts in the browser, chain re-verified locally. Copy the conversation id.
+6. **Verify independently.** `node bin/wayfind.js verify <id>` — 9 checks pass. Tamper one byte of a saved receipt copy — the signature check fails, the rest still pass.
+7. **Audit and export.** Activity tab (or `wayfind audit`) shows every step with actor and detail. Download the evidence bundle: receipt + sealed checkpoints + NEAR reports.
+
+Full walkthrough with expected outputs: [Testing](#9-testing) and the worked example there.
 
 ---
 
-## 1. Overview
+## 1. How It Works
 
-### What Wayfind ONE is
-
-Wayfind ONE is a managed website plus a CLI where customers run AI against
-sensitive data in **disposable Firecracker microVMs** and receive the result
-**together with independently verifiable security evidence**. Not a chatbot,
-not a VM provider, not an inference API — a private execution environment
-with receipts.
-
-The backend lives in a separate repo, [`../wayfind-cloud`](../wayfind-cloud)
-(Next.js 14 + Amplify Gen 2: auth, data, the `wayfind-api` function,
-storage). This repo holds the website frontend, the CLI, the sandbox agent
-image, the NEAR attestation proof kit, and the product docs. Nothing here
-works without that backend; nothing there is duplicated here.
-
-### Problem it solves
-
-Regulated teams, IP-heavy companies, and consultancies all face the same
-blocker: the useful AI lives behind someone else's API, and sending
-proprietary source code, contracts, financials, or patient data to a chatbot
-is a non-starter for legal, security, and compliance. The alternative —
-self-hosting models and infrastructure — is a platform project most teams
-cannot staff.
-
-Wayfind ONE occupies the middle: upload or connect a workspace, pick a task
-and model, run it in an isolated disposable machine with attested inference,
-get the result **plus evidence**. Security reviews stop being meetings about
-trust and become files a pipeline can check.
-
-### Core principles
-
-- **Disposable by default.** One conversation, one microVM. Termination
-  destroys the machine; verified destruction is part of every receipt.
-- **Keys never reach the endpoint.** Wayfind holds all long-lived keys
-  server-side. Browsers, CLIs, and guests only ever see short-lived,
-  session-scoped credentials that die with the session. No BYOK, no pasted
-  API keys.
-- **Evidence, not promises.** Every claim is labeled `observed`
-  (Wayfind saw it), `signed` (Wayfind attests it), or
-  `hardware-attested` (independent hardware proof, NEAR inference only).
-  Labels never mix; absence of evidence is reported, never implied.
-- **Fail closed, loudly.** Missing secrets, unverifiable signatures, stale
-  nonces, weaker-than-policy levels: explicit errors, never silent
-  downgrades.
-- **No plaintext where ciphertext will do.** Contents are sealed;
-  manifests carry hashes. Logs and debug output carry digests, never data.
-
-### Who it's for
-
-Developers running agentic work on private repos (CLI), teams analyzing
-sensitive documents (website), and security/compliance reviewers who need
-artifacts, not assurances (receipts, audit trail, evidence bundles).
-
----
-
-## 2. How It Works
-
-### Execution lifecycle
-
-1. **Create.** The customer picks a bot (or ad-hoc), a curated model, a
-   security level, and attaches files. The backend provisions a disposable
-   microVM, mints a per-session bearer, wraps a per-conversation key for
-   escrow, and records a session row.
-2. **Initialize.** The workspace is sealed into the VM (bulk uploads are
-   sealed server-side; the relay only ever sees ciphertext). The in-VM bot
-   runs its attestation preflight: fresh nonce, per-node echo, NVIDIA
-   verdict — retained for the session, or the session fails before any
-   prompt is sent.
-3. **Converse.** Each message appends to a hash-chained transcript, runs
-   one non-streaming inference with the workspace in context, appends the
-   reply, then verifies the response signature against the retained
-   preflight. The reply carries its verification (`provider_tee` or
-   `gateway`, signer, validity).
-4. **Checkpoint.** Sealed transcript snapshots are recorded on demand and
-   always at terminate. Blobs are opaque to the backend; manifests are
-   hashes.
-5. **Terminate.** Final snapshot, evidence pull, verified VM kill, session
-   keys revoked. A receipt is built and signed. History renders later from
-   checkpoints, decrypted client-side.
+Three flows run through every conversation (the step-by-step lifecycle lives under [Architecture](#2-architecture)).
 
 ### Data flow
 
@@ -114,27 +92,56 @@ any disagreement is treated as failure.
 
 ---
 
-## 3. Architecture
+## 2. Architecture
 
+```mermaid
+flowchart TB
+    USER[User — Website / CLI]
+    AUTH[Cognito — web login + device flow]
+    API[Wayfind API<br/>AWS Lambda]
+    POLICY[Policy gate<br/>fail closed]
+
+    USER --> AUTH
+    USER --> API
+    API --> POLICY
+
+    subgraph Control["Control plane (wayfind-cloud)"]
+        CONV[Conversation rows<br/>checkpoints · receipts · audit]
+        KEYS[Escrowed keys<br/>server-held only]
+    end
+
+    subgraph Exec["Disposable execution (per conversation)"]
+        VM[Firecracker MicroVM<br/>bot runner + tools]
+        WS[(Sealed workspace<br/>+ checkpoints)]
+    end
+
+    subgraph Evidence["Evidence"]
+        NEAR[NEAR AI TEE<br/>attested inference]
+        RCPT[Signed receipts]
+        WIDGET[Verification Center widget]
+    end
+
+    POLICY --> VM
+    VM <--> WS
+    VM --> NEAR
+    NEAR --> RCPT
+    VM --> RCPT
+    API --> CONV
+    RCPT --> USER
+    WIDGET --> USER
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Website (this repo: frontend/)        Customer-facing product│
-│   New · Bots · Conversations · Verify · Activity · Settings  │
-├─────────────────────────────────────────────────────────────┤
-│ CLI (this repo: bin/, src/)           Sync · chat · verify  │
-├─────────────────────────────────────────────────────────────┤
-│ Wayfind Backend (../wayfind-cloud)    Auth · orchestration  │
-│   Cognito (same pool: web login + CLI device flow)          │
-│   policy · audit trail · image trust · API proxy            │
-│   NEAR AI credentials (Amplify secrets, server-side only)   │
-├─────────────────────────────────────────────────────────────┤
-│ Execution   Firecracker MicroVM · workspace · tools (this   │
-│             repo: packages/sandbox — disposable, sealed)     │
-│ Inference   NEAR AI TEE (Intel TDX + NVIDIA) · session key  │
-├─────────────────────────────────────────────────────────────┤
-│ Evidence    NEAR attestation + Wayfind receipts (signed)     │
-└─────────────────────────────────────────────────────────────┘
-```
+
+### Conversation lifecycle
+
+A task moves through the following stages:
+
+1. **Create:** the customer picks a bot (or ad-hoc), a curated model, a security level, and attaches files — or the CLI provisions directly.
+2. **Provision:** the backend boots a disposable microVM, mints a per-session bearer, wraps a per-conversation key for escrow, and records a session row. Policy gates fail closed here.
+3. **Attest:** the in-VM bot runs its preflight (fresh nonce, per-node echo, NVIDIA verdict) — retained for the session, or the session fails before any prompt is sent.
+4. **Work:** messages append to a hash-chained transcript; each runs one non-streaming inference with the workspace in context, then verifies the response signature against the retained preflight.
+5. **Checkpoint:** sealed transcript snapshots are stored on demand and always at terminate; blobs are opaque to the backend.
+6. **Terminate:** final snapshot, evidence pull, verified VM kill, keys revoked. A receipt is built and signed — history renders later, decrypted client-side.
+7. **Verify:** CLI, website panel, and the NEAR widget check the same evidence three independent ways.
 
 ### Trust boundaries
 
@@ -176,7 +183,7 @@ EIP-191 signer recovery.
 
 ---
 
-## 4. Security & Privacy
+## 3. Security & Privacy
 
 ### Isolation vs confidentiality
 
@@ -232,7 +239,7 @@ pastes outside Wayfind.
 
 ---
 
-## 5. Verifiable Execution
+## 4. Verifiable Execution
 
 ### NEAR AI attestation
 
@@ -297,7 +304,7 @@ measured-boot binding are roadmap, not claims.
 
 ---
 
-## 6. Getting Started
+## 5. Getting Started
 
 ### Prerequisites
 
@@ -348,7 +355,7 @@ holds the audit trail with evidence downloads.
 
 ---
 
-## 7. Developer Guide
+## 6. Developer Guide
 
 ### Repository structure
 
@@ -410,7 +417,7 @@ checklist in PIVOT.md still applies.
 
 ---
 
-## 8. CLI Reference
+## 7. CLI Reference
 
 | Command | Does |
 |---|---|
@@ -429,7 +436,7 @@ gate CI pipelines on them.
 
 ---
 
-## 9. Testing
+## 8. Testing
 
 - **Proof kit**: `scripts/near-ai-tests/` 00–11 (see
   [§5's table](#the-proof-kit-scriptsnear-ai-tests)), all green on
@@ -449,7 +456,7 @@ gate CI pipelines on them.
 
 ---
 
-## 10. Project Status
+## 9. Project Status
 
 - [x] Phase 0 — CLI auth (device flow, same Cognito user).
 - [x] Phase 1 — disposable MicroVMs, sealed sync, warm sessions, receipts v0.
@@ -468,7 +475,7 @@ gate CI pipelines on them.
 
 ---
 
-## 11. Documentation
+## 10. Documentation
 
 - Product thesis and build plan: [`PIVOT.md`](PIVOT.md),
   [`PLAN-P1.md`](PLAN-P1.md).
