@@ -5,22 +5,19 @@ import { signOut } from 'aws-amplify/auth';
 import { MODELS } from './Catalog';
 import {
   ConversationMeta,
+  checkpointUrl,
+  conversationKeys,
   createConversation,
   listConversations,
+  pushWorkspace,
   relayMessage,
   terminateConversation,
 } from '@/lib/wayfind';
 import { checkReceipt } from '@/lib/receipt';
+import { TranscriptEntry, openEnvelope, verifyTranscript } from '@/lib/envelope';
 import { BotRow, listBots } from '@/lib/data';
 
 type Tab = 'bots' | 'conversations' | 'verify';
-
-interface TranscriptEntry {
-  seq: number;
-  role: string;
-  content: string;
-  hash: string;
-}
 
 const LEVELS = [
   { id: 'standard', label: 'Standard — isolated execution' },
@@ -32,16 +29,35 @@ function Err({ message }: { message: string | null }) {
   return <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
 }
 
-function BotsTab({ onDeploy }: { onDeploy: (bot: BotRow) => void }) {
+function BotsTab({ onCreated }: { onCreated: (id: string) => void }) {
   const [bots, setBots] = useState<BotRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState<string | null>(null);
   useEffect(() => {
     listBots().then(setBots).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  async function startWithBot(b: BotRow) {
+    setStarting(b.id);
+    setError(null);
+    try {
+      const created = await createConversation({ botId: b.id });
+      const system = [b.name ? `You are "${b.name}".` : '', b.role ?? '', b.description ?? '']
+        .filter(Boolean)
+        .join(' ') || 'You are a helpful assistant. Answer concisely.';
+      await relayMessage(created.conversationId, 'bot/init', { system, model: created.model });
+      onCreated(created.conversationId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStarting(null);
+    }
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold">Bots</h1>
-      <p className="mt-1 text-sm text-ink">Authored in the Wayfind Cloud builder · deployed here for private execution.</p>
+      <p className="mt-1 text-sm text-ink">Authored in the Wayfind Cloud builder · one click starts a private execution session.</p>
       <Err message={error} />
       {bots === null && !error && <p className="mt-6 text-sm text-ink">Loading…</p>}
       {bots !== null && bots.length === 0 && (
@@ -54,10 +70,11 @@ function BotsTab({ onDeploy }: { onDeploy: (bot: BotRow) => void }) {
             {b.role && <p className="mt-1 text-sm text-ink">{b.role}</p>}
             {b.description && <p className="mt-1 text-xs text-ink">{b.description}</p>}
             <button
-              onClick={() => onDeploy(b)}
-              className="mt-3 rounded-lg bg-cta px-3 py-1.5 text-sm text-white hover:bg-ctahover"
+              onClick={() => startWithBot(b)}
+              disabled={starting !== null}
+              className="mt-3 rounded-lg bg-cta px-3 py-1.5 text-sm text-white hover:bg-ctahover disabled:opacity-50"
             >
-              Deploy to private execution
+              {starting === b.id ? 'Provisioning…' : 'Start private conversation'}
             </button>
           </div>
         ))}
@@ -68,22 +85,18 @@ function BotsTab({ onDeploy }: { onDeploy: (bot: BotRow) => void }) {
 
 function NewConversationForm({
   bots,
-  presetBotId,
   onCreated,
 }: {
   bots: BotRow[];
-  presetBotId: string;
   onCreated: (id: string) => void;
 }) {
-  const [botId, setBotId] = useState(presetBotId);
+  const [botId, setBotId] = useState('');
   const [model, setModel] = useState(MODELS[0].id);
   const [level, setLevel] = useState('standard');
   const [system, setSystem] = useState('You are a helpful assistant. Answer concisely.');
   const [first, setFirst] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => setBotId(presetBotId), [presetBotId]);
 
   async function submit() {
     if (!first.trim()) {
@@ -164,6 +177,7 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verified, setVerified] = useState<boolean | null>(null);
+  const [attachInfo, setAttachInfo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -205,6 +219,37 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
     }
   }
 
+  async function attach(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setAttachInfo(null);
+    try {
+      const picked = [...files].slice(0, 200);
+      const encoded = await Promise.all(
+        picked.map(
+          (f) =>
+            new Promise<{ path: string; contentBase64: string }>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = String(reader.result ?? '');
+                const b64 = result.includes(',') ? result.split(',')[1] : result;
+                resolve({ path: f.name, contentBase64: b64 });
+              };
+              reader.onerror = () => reject(new Error(`cannot read ${f.name}`));
+              reader.readAsDataURL(f);
+            }),
+        ),
+      );
+      const out = await pushWorkspace(id, encoded);
+      setAttachInfo(`Attached ${out.pushed} file(s) · workspace ${out.workspaceHash.slice(0, 12)}…`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="mt-4 rounded-xl border border-navy/10 bg-white p-4">
       <div className="flex items-center justify-between">
@@ -239,11 +284,68 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
   );
 }
 
-function ConversationsTab() {
+function ClosedConversation({ conv }: { conv: ConversationMeta }) {
+  const [entries, setEntries] = useState<TranscriptEntry[] | null>(null);
+  const [chainOk, setChainOk] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function loadHistory() {
+    setLoading(true);
+    setError(null);
+    try {
+      const { workspaceKey } = await conversationKeys(conv.conversationId);
+      const manifest = conv.checkpointManifest ?? [];
+      if (manifest.length === 0) {
+        setEntries([]);
+        setChainOk(null);
+        return;
+      }
+      // Latest checkpoint holds the full transcript.
+      const last = manifest[manifest.length - 1];
+      const seq = Number(last.split(':')[0]);
+      const { url, sha256 } = await checkpointUrl(conv.conversationId, seq);
+      const blob = await (await fetch(url)).json();
+      const bytes = await openEnvelope(workspaceKey, 'transcript.jsonl', { ...blob, sha256: blob.sha256 ?? sha256 });
+      const parsed = JSON.parse(new TextDecoder().decode(bytes)) as TranscriptEntry[];
+      setEntries(parsed);
+      setChainOk(await verifyTranscript(parsed));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 text-xs text-ink">
+      <p>Closed · checkpoints {conv.checkpointManifest.length} · {conv.receipt ? 'receipt present — see Verify tab' : 'no receipt'}</p>
+      {entries === null && (
+        <button onClick={loadHistory} disabled={loading} className="mt-2 rounded-lg border border-navy/15 px-3 py-1 hover:bg-mist disabled:opacity-50">
+          {loading ? 'Decrypting…' : 'Load history (decrypted client-side)'}
+        </button>
+      )}
+      {entries !== null && entries.length === 0 && <p className="mt-2">No checkpoints recorded.</p>}
+      {entries !== null && entries.length > 0 && (
+        <div className="mt-2 max-h-72 space-y-2 overflow-y-auto">
+          <p>Chain {chainOk === true ? <span className="text-green-700">verified</span> : chainOk === false ? <span className="text-red-700">BROKEN</span> : '…'}</p>
+          {entries.map((e) => (
+            <div key={e.seq} className={`rounded-lg px-3 py-2 text-sm ${e.role === 'user' ? 'bg-mist text-navy' : 'bg-green-50 text-navy'}`}>
+              <p className="text-xs font-semibold uppercase">{e.role}</p>
+              <p className="whitespace-pre-wrap">{e.content}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <Err message={error} />
+    </div>
+  );
+}
+
+function ConversationsTab({ openRequest }: { openRequest: string | null }) {
   const [convs, setConvs] = useState<ConversationMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bots, setBots] = useState<BotRow[]>([]);
-  const [presetBotId, setPresetBotId] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -259,6 +361,13 @@ function ConversationsTab() {
     listBots().then(setBots).catch(() => {});
   }, [refresh]);
 
+  useEffect(() => {
+    if (openRequest) {
+      setOpenId(openRequest);
+      refresh();
+    }
+  }, [openRequest, refresh]);
+
   return (
     <div>
       <h1 className="text-2xl font-bold">Conversations</h1>
@@ -267,7 +376,6 @@ function ConversationsTab() {
       <div className="mt-4">
         <NewConversationForm
           bots={bots}
-          presetBotId={presetBotId}
           onCreated={(id) => {
             setOpenId(id);
             refresh();
@@ -291,28 +399,14 @@ function ConversationsTab() {
               />
             )}
             {openId === c.conversationId && c.status !== 'live' && (
-              <p className="mt-2 text-xs text-ink">
-                Closed · checkpoints {c.checkpointManifest.length} · {c.receipt ? 'receipt present — see Verify tab' : 'no receipt'}
-              </p>
+              <ClosedConversation conv={c} />
             )}
           </div>
         ))}
         {convs !== null && convs.length === 0 && <p className="text-sm text-ink">No conversations yet.</p>}
       </div>
-      <BotDeployBridge onPick={(id) => setPresetBotId(id)} botId={presetBotId} />
     </div>
   );
-}
-
-// Hidden bridge: the Bots tab sets the deployed bot here via a custom event.
-function BotDeployBridge({ onPick, botId }: { onPick: (id: string) => void; botId: string }) {
-  useEffect(() => {
-    const handler = (e: Event) => onPick((e as CustomEvent<string>).detail);
-    window.addEventListener('wayfind:deploy-bot', handler);
-    return () => window.removeEventListener('wayfind:deploy-bot', handler);
-  }, [onPick]);
-  void botId;
-  return null;
 }
 
 function VerifyTab() {
@@ -380,6 +474,7 @@ function VerifyTab() {
 
 export default function OneShell({ email }: { email?: string }) {
   const [tab, setTab] = useState<Tab>('bots');
+  const [openRequest, setOpenRequest] = useState<string | null>(null);
   return (
     <div className="flex min-h-screen bg-mist">
       <aside className="flex w-64 flex-col border-r border-navy/10 bg-white">
@@ -407,13 +502,13 @@ export default function OneShell({ email }: { email?: string }) {
       <main className="flex-1 p-8">
         {tab === 'bots' && (
           <BotsTab
-            onDeploy={(b) => {
+            onCreated={(id) => {
+              setOpenRequest(id);
               setTab('conversations');
-              window.dispatchEvent(new CustomEvent('wayfind:deploy-bot', { detail: b.id }));
             }}
           />
         )}
-        {tab === 'conversations' && <ConversationsTab />}
+        {tab === 'conversations' && <ConversationsTab openRequest={openRequest} />}
         {tab === 'verify' && <VerifyTab />}
       </main>
     </div>

@@ -80,3 +80,15 @@ export async function relayMessage<T = unknown>(id: string, sub: string, body: u
 export async function terminateConversation(id: string): Promise<{ ok: boolean; verified: boolean; receipt: ReceiptV0 }> {
   return apiFetch(`/conversations/${id}/terminate`, { method: 'POST', body: {} });
 }
+
+export async function pushWorkspace(id: string, files: Array<{ path: string; contentBase64: string }>): Promise<{ ok: boolean; pushed: number; workspaceHash: string }> {
+  return apiFetch(`/conversations/${id}/workspace`, { method: 'POST', body: { files } });
+}
+
+export async function conversationKeys(id: string): Promise<{ key: string; workspaceKey: string }> {
+  return apiFetch(`/conversations/${id}/key`);
+}
+
+export async function checkpointUrl(id: string, seq: number): Promise<{ blobKey: string; url: string; sha256: string | null }> {
+  return apiFetch(`/conversations/${id}/checkpoint-url?seq=${seq}`);
+}
