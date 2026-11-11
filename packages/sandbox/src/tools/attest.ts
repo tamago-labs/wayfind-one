@@ -28,6 +28,9 @@ export interface MessageVerification {
   checked: boolean;
   kind: string;
   kindMatch: boolean;
+  /** Retained for widget VerificationReports (NEAR response reports). */
+  signedText: string | null;
+  signature: string | null;
   requestHashMatch: boolean;
   responseHashMatch: boolean;
   modelMatch: boolean | null;
@@ -158,6 +161,7 @@ export async function verifyMessage(
   const fail = (error: string): MessageVerification => ({
     seq, chatId, checked: true, kind: 'unknown', kindMatch: false, requestHashMatch: false,
     responseHashMatch: false, modelMatch: null, signer: null, valid: false, error,
+    signedText: null, signature: null,
   });
   if (!chatId) return fail('no chat id — response is unverified');
   let sig: { text: string; signature: string; signature_kind?: string };
@@ -186,7 +190,7 @@ export async function verifyMessage(
   const valid = kindMatch && requestHashMatch && responseHashMatch && modelOk && addrOk;
   return {
     seq, chatId, checked: true, kind, kindMatch, requestHashMatch, responseHashMatch,
-    modelMatch, signer, valid,
+    modelMatch, signer, valid, signedText: sig.text ?? null, signature: sig.signature ?? null,
     ...(valid ? {} : { error: 'response verification failed' }),
   };
 }

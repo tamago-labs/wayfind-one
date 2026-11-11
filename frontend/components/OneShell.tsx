@@ -14,6 +14,7 @@ import {
   terminateConversation,
 } from '@/lib/wayfind';
 import { checkReceipt } from '@/lib/receipt';
+import VerificationWidget from '@/components/VerificationWidget';
 import { TranscriptEntry, openEnvelope, verifyTranscript } from '@/lib/envelope';
 import { BotRow, listBots } from '@/lib/data';
 
@@ -381,6 +382,7 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
   return (
     <div className="mt-2 text-xs text-ink">
       <p>Closed · checkpoints {(conv.checkpointManifest?.length ? conv.checkpointManifest.length : conv.receipt?.checkpointManifest?.length) ?? 0} · {conv.receipt ? 'receipt present — see Verify tab' : 'no receipt'}</p>
+      {conv.receipt?.inference && <VerificationWidget conversationId={conv.conversationId} />}
       {entries === null && (
         <button onClick={loadHistory} disabled={loading} className="mt-2 rounded-lg border border-navy/15 px-3 py-1 hover:bg-mist disabled:opacity-50">
           {loading ? 'Decrypting…' : 'Load history (decrypted client-side)'}

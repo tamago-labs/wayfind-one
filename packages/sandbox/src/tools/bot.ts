@@ -194,6 +194,7 @@ export const botMessageTool = {
         seq: head.seq, chatId: ai.chatId, checked: false, kind: 'unknown',
         kindMatch: false, requestHashMatch: false, responseHashMatch: false,
         modelMatch: null, signer: null, valid: false,
+        signedText: null, signature: null,
       };
     }
     verifications.push(verification);
@@ -240,6 +241,7 @@ export const evidenceTool = {
     preflight: preflight
       ? {
           at: preflight.at,
+          nonce: preflight.nonce,
           model: preflight.model,
           nodes: preflight.nodes,
           nonceEchoed: preflight.nonceEchoed,

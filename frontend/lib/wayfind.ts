@@ -109,3 +109,7 @@ export async function checkpointUrl(id: string, seq: number): Promise<{ blobKey:
 export async function checkpointBlob(id: string, seq: number): Promise<{ blobKey: string; sha256: string | null; envelope: { sha256?: string; nonce?: string; data?: string } }> {
   return apiFetch(`/conversations/${id}/checkpoint-blob?seq=${seq}`);
 }
+
+export async function verificationReports(id: string, chatId?: string): Promise<{ reports: unknown[] }> {
+  return apiFetch(`/conversations/${id}/verification-reports${chatId ? `?chatId=${encodeURIComponent(chatId)}` : ''}`);
+}
