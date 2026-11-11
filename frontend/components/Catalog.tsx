@@ -1,6 +1,5 @@
 export const MODELS = [
   { id: 'Qwen/Qwen3.8-27B', via: 'NEAR AI', label: 'Attestation verified', tone: 'green' as const },
-  { id: 'Muse Spark', via: 'Meta', label: 'Standard', tone: 'slate' as const },
 ];
 
 export function SecurityNote() {

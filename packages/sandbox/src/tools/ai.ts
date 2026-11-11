@@ -1,7 +1,7 @@
 // In-VM inference (thin, Phase 1 step 8/9 shape). Non-streaming chat only:
 // attestation tasks demand provider_tee signatures, which streams don't get.
 // Credential comes from /hooks/run injection (memory-only); absent → 503.
-// meta-test and unknown providers → 501 until wired.
+// Only near-ai is wired — anything else fails closed (501).
 import { z } from 'zod';
 import { AI_TIMEOUT_MS, MAX_AI_PROMPT_CHARS, NEARAI_BASE_URL } from '../config.js';
 import { sha256Hex } from './crypto.js';

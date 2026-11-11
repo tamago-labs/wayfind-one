@@ -62,9 +62,9 @@ documented future for pure-chat tasks, not launch scope.
    app, no new auth system. CLI device flow stays for CLI only.
 2. **CLI role:** sync + automation + independent `verify`. Full-client
    CLI is out.
-3. **Models (curated):** `Qwen/Qwen3.8-27B` via NEAR AI for attestation
-   tasks (fully verified by `scripts/near-ai-tests/` 00–07) + Muse Spark
-   for cheap test/dry-run. New models only after passing 00–07 each.
+3. **Models (curated):** `Qwen/Qwen3.8-27B` via NEAR AI (fully verified
+   by `scripts/near-ai-tests/` 00–07). Single model until a second one
+   passes the same gate. New models only after passing 00–07 each.
 4. **Tasks:** VM-backed only at launch — every execution runs in a
    disposable MicroVM; chat is a task type, not a separate path.
 5. **Keys:** Wayfind-held, no BYOK. Long-lived NEAR/test keys in Amplify
