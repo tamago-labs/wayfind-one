@@ -4,7 +4,9 @@
 // loop (exec stays a separate relay call). Dies with the VM; persistence
 // is via /checkpoint sealed snapshots (client uploads the blob).
 import { z } from 'zod';
-import { MAX_TRANSCRIPT_ENTRIES } from '../config.js';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { MAX_TRANSCRIPT_ENTRIES, WORKSPACE_DIR } from '../config.js';
 import { HttpError } from '../http.js';
 import { getAiCredentials, getSessionToken } from '../session.js';
 import { deriveWorkspaceKey, sealFile, sha256Hex } from './crypto.js';
@@ -107,6 +109,60 @@ export const botInitTool = {
   },
 };
 
+// Workspace context: the point of "ask about your files" is that the bot
+// can actually see them. Text files under the workspace are prepended to
+// every prompt (fresh each turn, binary skipped). Caps keep prompts small.
+const MAX_CTX_FILES = 50;
+const MAX_CTX_FILE_CHARS = 8_000;
+const MAX_CTX_TOTAL_CHARS = 16_000;
+
+function isTextBuffer(buf: Buffer): boolean {
+  const head = buf.subarray(0, Math.min(buf.length, 8000));
+  for (let i = 0; i < head.length; i++) {
+    if (head[i] === 0) return false;
+  }
+  return true;
+}
+
+function readWorkspaceContext(): string {
+  const collected: Array<{ rel: string; text: string }> = [];
+  let total = 0;
+  const walk = (dir: string, relBase: string): void => {
+    if (collected.length >= MAX_CTX_FILES || total >= MAX_CTX_TOTAL_CHARS) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (collected.length >= MAX_CTX_FILES || total >= MAX_CTX_TOTAL_CHARS) break;
+      if (e.name.startsWith('.')) continue;
+      const abs = path.join(dir, e.name);
+      const rel = relBase ? `${relBase}/${e.name}` : e.name;
+      try {
+        if (e.isDirectory()) {
+          walk(abs, rel);
+        } else if (e.isFile()) {
+          const st = statSync(abs);
+          if (st.size > 1024 * 1024) continue;
+          const buf = readFileSync(abs);
+          if (!isTextBuffer(buf)) continue;
+          const text = buf.toString('utf8').slice(0, MAX_CTX_FILE_CHARS);
+          collected.push({ rel, text });
+          total += text.length;
+        }
+      } catch {
+        // Unreadable entry — skip, don't fail the turn.
+      }
+    }
+  };
+  walk(WORKSPACE_DIR, '');
+  if (collected.length === 0) return '';
+  const parts = collected.map((f) => `--- ${f.rel} ---\n${f.text}`);
+  return `\n\nWorkspace files (attached by the user, read live from the sandbox):\n${parts.join('\n')}`;
+}
+
 export const botMessageTool = {
   name: 'bot_message',
   description: 'Send one user message: appends to the chained transcript, runs one inference, appends the reply.',
@@ -116,9 +172,11 @@ export const botMessageTool = {
     if (typeof args.content !== 'string' || !args.content) throw new HttpError(400, 'content is required');
     if (transcript.length >= MAX_TRANSCRIPT_ENTRIES) throw new HttpError(413, 'transcript full — terminate and start a new conversation');
     appendEntry('user', args.content);
+    const workspaceCtx = readWorkspaceContext();
     const rendered = [
       ...(botConfig.system ? [`system: ${botConfig.system}`] : []),
       ...transcript.map((e) => `${e.role}: ${e.content}`),
+      workspaceCtx,
     ].join('\n');
     const ai = await runAi(rendered, { model: botConfig.model });
     appendEntry('assistant', ai.text);
