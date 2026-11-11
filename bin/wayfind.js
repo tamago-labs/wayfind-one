@@ -9,6 +9,10 @@ import { stop } from '../src/commands/stop.js';
 import { exportFiles } from '../src/commands/export.js';
 import { verify } from '../src/commands/verify.js';
 import { chat } from '../src/commands/chat.js';
+import { policy } from '../src/commands/policy.js';
+import { audit } from '../src/commands/audit.js';
+import { evidence } from '../src/commands/evidence.js';
+import { imageTrust } from '../src/commands/image-trust.js';
 
 const [, , cmd, ...rest] = process.argv;
 
@@ -28,10 +32,18 @@ if (cmd === 'login') {
   await verify(rest);
 } else if (cmd === 'chat') {
   await chat(rest);
+} else if (cmd === 'policy') {
+  await policy(rest);
+} else if (cmd === 'audit') {
+  await audit(rest);
+} else if (cmd === 'evidence') {
+  await evidence(rest);
+} else if (cmd === 'image-trust') {
+  await imageTrust();
 } else if (cmd === 'start' || cmd === undefined) {
   await start();
 } else {
   console.error(`Unknown command: ${cmd}`);
-  console.error('Usage: wayfind [login|logout|run|status|stop|export|verify|chat|start]');
+  console.error('Usage: wayfind [login|logout|run|status|stop|export|verify|chat|policy|audit|evidence|image-trust|start]');
   process.exit(1);
 }

@@ -29,6 +29,7 @@ export const REGION = process.env.AWS_REGION ?? 'ap-southeast-1';
 export const BUCKET = need('MICROVM_BUCKET');
 export const IMAGE_NAME = process.env.SANDBOX_IMAGE_NAME ?? 'wayfind-sandbox';
 export const ZIP_KEY = process.env.SANDBOX_ZIP_KEY ?? `microvm-artifacts/${IMAGE_NAME}.zip`;
+export const SBOM_KEY = `microvm-artifacts/${IMAGE_NAME}.sbom.json`;
 
 export const mv = new LambdaMicrovmsClient({ region: REGION });
 export const s3 = new S3Client({ region: REGION });
@@ -43,6 +44,8 @@ export interface ExecImageState {
   imageArn?: string;
   imageVersion?: string;
   zipKey?: string;
+  zipSha256?: string;
+  sbomSha256?: string;
   /** Manual smoke-run VM. */
   microvmId?: string;
   endpoint?: string;

@@ -7,10 +7,11 @@
 // keys (the session bearer is injected per-VM at /run).
 import { execSync } from 'child_process';
 import archiver from 'archiver';
-import { copyFileSync, cpSync, createWriteStream, mkdirSync, rmSync, statSync } from 'fs';
+import { copyFileSync, cpSync, createWriteStream, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { createHash } from 'crypto';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { createReadStream } from 'fs';
-import { BUCKET, DIR, ZIP_KEY, s3, saveState } from './config';
+import { BUCKET, DIR, SBOM_KEY, ZIP_KEY, s3, saveState } from './config';
 
 const STAGE = `${DIR}/stage`;
 
@@ -34,6 +35,12 @@ async function main(): Promise<void> {
   rmSync(`${STAGE}/package-lock.json`, { force: true });
   cpSync('dist', `${STAGE}/dist`, { recursive: true });
 
+  // 2b. SBOM of the staged production tree (CycloneDX via npm).
+  const sbomJson = execSync('npm sbom --omit=dev --json', { cwd: STAGE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  writeFileSync(`${STAGE}/sbom.json`, sbomJson);
+  const sbomSha256 = createHash('sha256').update(sbomJson).digest('hex');
+  console.log(`SBOM: ${JSON.parse(sbomJson).components?.length ?? '?'} components, sha256=${sbomSha256.slice(0, 12)}…`);
+
   // 3. Zip: Dockerfile at root + staged bundle.
   const zipPath = `${DIR}/exec.zip`;
   await new Promise<void>((resolve, reject) => {
@@ -51,12 +58,16 @@ async function main(): Promise<void> {
   const size = statSync(zipPath).size;
   console.log(`Staged bundle: ${(size / 1024).toFixed(0)} KB — ${zipPath}`);
 
-  // 4. Upload (streamed).
+  // 4. Upload zip + SBOM (streamed), record hashes for the trust record.
+  const zipSha256 = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
   await s3.send(
     new PutObjectCommand({ Bucket: BUCKET, Key: ZIP_KEY, Body: createReadStream(zipPath) }),
   );
-  saveState({ zipKey: `s3://${BUCKET}/${ZIP_KEY}` });
-  console.log(`Uploaded s3://${BUCKET}/${ZIP_KEY}`);
+  await s3.send(
+    new PutObjectCommand({ Bucket: BUCKET, Key: SBOM_KEY, Body: readFileSync(`${STAGE}/sbom.json`), ContentType: 'application/json' }),
+  );
+  saveState({ zipKey: `s3://${BUCKET}/${ZIP_KEY}`, zipSha256, sbomSha256 });
+  console.log(`Uploaded s3://${BUCKET}/${ZIP_KEY} (sha256=${zipSha256.slice(0, 12)}…) + SBOM`);
 }
 
 main().catch((err) => {
