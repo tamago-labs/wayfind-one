@@ -1,12 +1,38 @@
 // wayfind verify — check a v0 execution receipt offline.
 // Usage: wayfind verify <receipt.json | conversationId>
-// A file is read locally (fully offline); an id is fetched from the API
-// first. v0 receipts are UNSIGNED (class "observed"): this checks shape,
-// chain order, and internal consistency — not authenticity. Signature +
-// attestation checks land in Phase 2 (same command, same file format).
+// A file is read locally (fully offline); an id is fetched first, then
+// checked locally. Unsigned v0 ("observed") receipts: shape, chain order,
+// internal consistency. Signed receipts ("signed"): all of the above PLUS
+// a local Ed25519 check against the control-plane key (cached in
+// ~/.wayfind/verify-key.json, refreshed when the kid rotates).
+import { verify as edVerify } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { apiBase } from '../auth/client.js';
 import { listConversations, loadToken } from '../sandbox/api.js';
+
+/** Canonical JSON — must match the backend byte-for-byte (sorted keys). */
+export function canonicalize(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  const entries = Object.entries(value)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalize(v)}`).join(',')}}`;
+}
+
+const KEY_CACHE = path.join(os.homedir(), '.wayfind', 'verify-key.json');
+
+async function loadVerifyKey() {
+  try {
+    const cached = JSON.parse(await fs.readFile(KEY_CACHE, 'utf8'));
+    if (cached?.kid && cached?.publicKey) return { cached: true, ...cached };
+  } catch {
+    // No cache — fetch below (public endpoint, no auth needed).
+  }
+  return loadVerifyKeyForce();
+}
 
 function check(name, pass, detail) {
   console.log(`  ${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
@@ -16,7 +42,8 @@ function check(name, pass, detail) {
 export function checkReceipt(r) {
   const results = [];
   results.push(check('version is wayfind-receipt/v0', r?.version === 'wayfind-receipt/v0', String(r?.version)));
-  results.push(check('class is observed (unsigned)', r?.class === 'observed', String(r?.class)));
+  const signed = r?.class === 'signed';
+  results.push(check('class is observed or signed', r?.class === 'observed' || signed, String(r?.class)));
   const required = ['conversationId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt'];
   const missing = required.filter((k) => r?.[k] == null);
   results.push(check('required fields present', missing.length === 0, missing.length ? `missing: ${missing.join(',')}` : `${required.length}/${required.length}`));
@@ -52,9 +79,9 @@ export function checkReceipt(r) {
     console.log('  NOTE  no inference evidence block (older receipt or standard tier)');
   }
   if (r?.class !== 'signed' && r?.class !== 'hardware-attested') {
-    console.log('  NOTE  unsigned v0: integrity checked, authenticity not proven (Phase 2 signs receipts)');
+    console.log('  NOTE  unsigned v0: integrity checked, authenticity not proven (signed receipts verify below when present)');
   }
-  return results.every(Boolean);
+  return { ok: results.every(Boolean), signed: !!signed, signature: r?.signature ?? null };
 }
 
 export async function verify(rawArgs) {
@@ -90,7 +117,54 @@ export async function verify(rawArgs) {
     receipt = conv.receipt;
     console.log(`Receipt: conversation ${src} (fetched, then checked locally)`);
   }
-  const ok = checkReceipt(receipt);
+  let { ok } = checkReceipt(receipt);
+  // Offline Ed25519 check for signed receipts. Unsigned (observed-only)
+  // receipts skip this — the NOTE above already says so.
+  if (receipt?.class === 'signed' && receipt?.signature?.sig) {
+    try {
+      const key = await loadVerifyKey();
+      const { signature, ...body } = receipt;
+      let valid = false;
+      let detail = '';
+      if (signature.kid !== key.kid) {
+        try {
+          const fresh = await loadVerifyKeyForce();
+          if (fresh.kid === signature.kid) {
+            valid = edVerifyCheck(body, signature, fresh.publicKey);
+            detail = `key rotated (now ${fresh.kid})`;
+          } else {
+            detail = `unknown kid ${signature.kid} (current ${key.kid})`;
+          }
+        } catch (e) {
+          detail = e.message;
+        }
+      } else {
+        valid = edVerifyCheck(body, signature, key.publicKey);
+        detail = `kid ${key.kid}`;
+      }
+      ok = check('Ed25519 receipt signature verifies (offline)', valid, detail) && ok;
+    } catch (e) {
+      ok = check('Ed25519 receipt signature verifies (offline)', false, e.message) && ok;
+    }
+  }
   console.log(ok ? 'verify: ALL CHECKS PASSED' : 'verify: CHECKS FAILED');
   process.exit(ok ? 0 : 1);
+}
+
+function edVerifyCheck(body, signature, publicKeyPem) {
+  if (signature?.algo !== 'ed25519' || typeof signature.sig !== 'string') return false;
+  try {
+    return edVerify(null, Buffer.from(canonicalize(body), 'utf8'), publicKeyPem, Buffer.from(signature.sig, 'base64url'));
+  } catch {
+    return false;
+  }
+}
+
+async function loadVerifyKeyForce() {
+  const res = await fetch(`${apiBase()}/verify-key`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.kid || !data?.publicKey) throw new Error(data?.error ?? 'verify-key unavailable');
+  await fs.mkdir(path.dirname(KEY_CACHE), { recursive: true });
+  await fs.writeFile(KEY_CACHE, JSON.stringify(data));
+  return data;
 }

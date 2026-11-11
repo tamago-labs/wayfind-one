@@ -12,6 +12,7 @@ import {
   pushWorkspace,
   relayMessage,
   terminateConversation,
+  verifyReceiptServer,
 } from '@/lib/wayfind';
 import { checkReceipt } from '@/lib/receipt';
 import VerificationWidget from '@/components/VerificationWidget';
@@ -477,26 +478,40 @@ function VerifyTab() {
   const [result, setResult] = useState<ReturnType<typeof checkReceipt> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [serverCheck, setServerCheck] = useState<{ valid?: boolean; kid?: string; signerMatch?: boolean; checks?: Array<{ name: string; pass: boolean; detail?: string }>; reason?: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+
   async function run() {
     setError(null);
     setResult(null);
+    setServerCheck(null);
     const trimmed = input.trim();
     if (!trimmed) {
       setError('Paste a receipt JSON or a conversation id.');
       return;
     }
     try {
+      let receipt: unknown = null;
       if (trimmed.startsWith('{')) {
-        setResult(checkReceipt(JSON.parse(trimmed)));
-        return;
+        receipt = JSON.parse(trimmed);
+      } else {
+        const convs = await listConversations();
+        const conv = convs.find((c) => c.conversationId === trimmed);
+        if (!conv?.receipt) {
+          setError('No receipt on that conversation (only closed ones carry one).');
+          return;
+        }
+        receipt = conv.receipt;
       }
-      const convs = await listConversations();
-      const conv = convs.find((c) => c.conversationId === trimmed);
-      if (!conv?.receipt) {
-        setError('No receipt on that conversation (only closed ones carry one).');
-        return;
+      setResult(checkReceipt(receipt as never));
+      if ((receipt as { class?: string; signature?: { sig?: string } })?.class === 'signed') {
+        setChecking(true);
+        try {
+          setServerCheck(await verifyReceiptServer(receipt));
+        } finally {
+          setChecking(false);
+        }
       }
-      setResult(checkReceipt(conv.receipt));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -517,6 +532,23 @@ function VerifyTab() {
         Check receipt
       </button>
       <Err message={error} />
+      {checking && <p className="mt-2 text-xs italic text-ink">Checking control-plane signature…</p>}
+      {serverCheck && (
+        <div className="mt-4 rounded-xl border border-navy/10 bg-white p-4">
+          <p className="text-sm font-semibold text-navy">Control-plane signature (server-checked — true offline check is the CLI)</p>
+          {(serverCheck.checks ?? []).map((c) => (
+            <p key={c.name} className="text-sm">
+              <span className={c.pass ? 'text-green-700' : 'text-red-700'}>{c.pass ? 'PASS' : 'FAIL'}</span>
+              <span className="text-navy"> {c.name}</span>
+              {c.detail && <span className="text-ink"> — {c.detail}</span>}
+            </p>
+          ))}
+          {serverCheck.reason && <p className="text-sm text-ink">{serverCheck.reason}</p>}
+          <p className={`mt-1 text-sm font-semibold ${serverCheck.valid ? 'text-green-700' : 'text-red-700'}`}>
+            {serverCheck.valid ? 'SIGNATURE VALID' : 'SIGNATURE NOT VERIFIED'}
+          </p>
+        </div>
+      )}
       {result && (
         <div className="mt-4 rounded-xl border border-navy/10 bg-white p-4">
           {result.checks.map((c) => (

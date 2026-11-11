@@ -54,6 +54,7 @@ export interface ReceiptV0 {
   provisionedAt: string | null;
   terminatedAt: string | null;
   cleanup?: { vmTerminated?: boolean };
+  signature?: { kid?: string; algo?: string; sig?: string };
   inference?: {
     preflight?: {
       at?: string; nonce?: string; model?: string; nodes?: number;
@@ -108,6 +109,10 @@ export async function checkpointUrl(id: string, seq: number): Promise<{ blobKey:
 
 export async function checkpointBlob(id: string, seq: number): Promise<{ blobKey: string; sha256: string | null; envelope: { sha256?: string; nonce?: string; data?: string } }> {
   return apiFetch(`/conversations/${id}/checkpoint-blob?seq=${seq}`);
+}
+
+export async function verifyReceiptServer(receipt: unknown): Promise<{ ok: boolean; valid: boolean; kid?: string; signerMatch?: boolean; checks?: Array<{ name: string; pass: boolean; detail?: string }>; reason?: string }> {
+  return apiFetch(`/verify-receipt`, { method: 'POST', body: { receipt } });
 }
 
 export async function verificationReports(id: string, chatId?: string): Promise<{ reports: unknown[] }> {

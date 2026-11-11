@@ -17,7 +17,8 @@ export function checkReceipt(r: ReceiptV0 | null | undefined): { ok: boolean; ch
   };
   let ok = true;
   ok &&= push('version is wayfind-receipt/v0', r?.version === 'wayfind-receipt/v0', String(r?.version));
-  ok &&= push('class is observed (unsigned)', r?.class === 'observed', String(r?.class));
+  const signed = r?.class === 'signed';
+  ok &&= push('class is observed or signed', r?.class === 'observed' || signed, String(r?.class));
   const required = ['conversationId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt'];
   const missing = required.filter((k) => (r as unknown as Record<string, unknown>)?.[k] == null);
   ok &&= push('required fields present', missing.length === 0, missing.length ? `missing: ${missing.join(',')}` : 'all present');
@@ -39,6 +40,11 @@ export function checkReceipt(r: ReceiptV0 | null | undefined): { ok: boolean; ch
   }
   ok &&= push('terminated after provisioned', timeOk);
   ok &&= push('VM cleanup verified at terminate', r?.cleanup?.vmTerminated === true);
+  if (r?.class === 'signed' && r.signature?.kid) {
+    ok &&= push('control-plane signature present (verified below / CLI offline)', true, `kid ${r.signature.kid}`);
+  } else {
+    checks.push({ name: 'control-plane signature', pass: true, detail: 'absent — receipt is observed-only' });
+  }
   const inf = (r as unknown as { inference?: unknown })?.inference as {
     preflight?: { nonceEchoed?: boolean; modelTee?: string[]; nodes?: number; nvidia?: { overall?: boolean; nonceMatch?: boolean; gpus?: number } };
     messages?: Array<{ checked?: boolean; valid?: boolean }>;
