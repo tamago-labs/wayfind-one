@@ -49,6 +49,16 @@ export async function terminate(token, session) {
   } : {}, token);
 }
 
+/** List the caller's conversations (metadata + receipts, no bearers/keys). */
+export async function listConversations(token) {
+  const res = await fetch(`${apiBase()}/conversations`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+  return data.conversations ?? [];
+}
+
 /** Relay a call to the exec agent. The server resolves the caller's live
  * session — no ids needed (explicit session overrides when given). */
 export async function relay(token, session, sub, body) {

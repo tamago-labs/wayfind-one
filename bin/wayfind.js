@@ -7,6 +7,7 @@ import { run } from '../src/commands/run.js';
 import { status } from '../src/commands/status.js';
 import { stop } from '../src/commands/stop.js';
 import { exportFiles } from '../src/commands/export.js';
+import { verify } from '../src/commands/verify.js';
 
 const [, , cmd, ...rest] = process.argv;
 
@@ -22,10 +23,12 @@ if (cmd === 'login') {
   await stop();
 } else if (cmd === 'export') {
   await exportFiles(rest);
+} else if (cmd === 'verify') {
+  await verify(rest);
 } else if (cmd === 'start' || cmd === undefined) {
   await start();
 } else {
   console.error(`Unknown command: ${cmd}`);
-  console.error('Usage: wayfind [login|logout|run|status|stop|export|start]');
+  console.error('Usage: wayfind [login|logout|run|status|stop|export|verify|start]');
   process.exit(1);
 }
