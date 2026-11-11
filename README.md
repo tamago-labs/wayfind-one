@@ -1,23 +1,25 @@
 # Wayfind ONE
 
-> Private AI execution you can verify.
+> Ephemeral environments for a verifiable AI workforce.
 
-**Hackathon Highlights**
-- Private conversations with AI bots running in **disposable Firecracker microVMs** — destroyed after every session, verified on destroy
-- **Attested NEAR AI inference**: hardware attestation checked before the first prompt, every response signature verified against it
-- **Signed execution receipts**: who ran what, where, on which image and model, with what evidence — checkable offline with one command
-- **Independent verification**: CLI checks, website panel, and the official NEAR Verification Center widget must all agree
-- **Policy-enforced execution**: minimum security levels and allowed models, gated server-side — weaker requests fail closed, every decision audited
-- **Signed supply chain + audit trail**: the golden image ships with an SBOM and a control-plane-signed trust record; every action lands in an append-only audit log with one-command evidence export
-- Judge path takes ~10 minutes, no cloud account needed beyond a Wayfind login and a NEAR key we provide
+## Hackathon Highlights
+
+- **Ephemeral AI execution** — Every task runs inside an isolated Firecracker microVM, destroyed after the session. Workspace state and execution evidence are checked during teardown.
+- **Hardware-attested AI inference** — NEAR AI attestation is verified before the first prompt, with every response signature checked against the attested inference environment.
+- **Cryptographic execution receipts** — Signed receipts capture execution identity, environment, image, model, and evidence hashes. Verify them offline with a single CLI command.
+- **Independent verification** — Execution evidence can be checked through the CLI and website, with the official NEAR Verification Center providing an additional inference-attestation verification surface.
+- **Policy-enforced security** — Server-side policies enforce minimum security levels and allowed models. Non-compliant requests fail closed, with decisions recorded for audit.
+- **Trusted execution images** — Golden images are identified through control-plane-signed trust records, providing verifiable image provenance.
+- **Tamper-evident audit trail** — Hash-chained transcripts, signed checkpoints, and append-only audit records preserve execution history, with one-command evidence export.
+
 
 ## Overview
 
-Regulated teams, IP-heavy companies, and consultancies all face the same blocker: the useful AI lives behind someone else's API, and sending proprietary source code, contracts, financials, or patient data to a chatbot is a non-starter for legal, security, and compliance. Self-hosting models and infrastructure instead is a platform project most teams cannot staff.
+AI workers need more than a model and a prompt. They need an environment to access data, execute tasks, and produce results — with evidence of what actually happened.
 
-Wayfind ONE occupies the middle: a managed website plus a CLI where you upload a workspace, pick a task and model, run it in an isolated disposable machine with attested inference, and get the result **plus evidence**. Security reviews stop being meetings about trust and become files a pipeline can check.
+Wayfind ONE provides ephemeral execution environments for a verifiable AI workforce. Each task runs inside an isolated Firecracker microVM, uses attested AI inference, and produces cryptographic evidence that can be independently checked.
 
-The backend lives in a separate repo, [`../wayfind-cloud`](../wayfind-cloud) (Amplify Gen 2: auth, data, the `wayfind-api` function, storage — plus the older Next.js dashboard, untouched by this project). This repo holds the website frontend, the CLI, the sandbox agent image, the NEAR attestation proof kit, and the product docs.
+Bring your data, choose your model, and run AI work in disposable environments. Every execution produces more than an answer: it produces a verifiable record of the environment, model, and execution evidence.
 
 ## Quick links
 
@@ -32,13 +34,23 @@ The backend lives in a separate repo, [`../wayfind-cloud`](../wayfind-cloud) (Am
 
 ## Background
 
-AI help arrived in three generations. Each added power — and each still demands something a serious team can't spare:
+AI can already write, reason, and execute tasks. But when it works with sensitive data, capability alone isn't enough. You need to know where it ran, which model processed your data, and whether the result can be independently verified.
 
-| Generation | What it added | What it still demands |
+The difference is between trusting an AI provider and having evidence to verify what actually happened.
+
+| Dimension | Conventional AI | Verifiable AI |
 |---|---|---|
-| Chat (2022 onwards) | Answers on demand — ask anything, get a draft | Your files: copy-paste out, no memory, no proof anything happened |
-| Agents (2024 onwards) | Act in your tools — runs commands, touches real data | Your trust: you hold the keys, the logs, the bill — and take the auditor's word for none of it |
-| Verifiable execution (now) | Isolated runs + attested inference + signed receipts | Nothing to verify against — until Wayfind |
+| Execution | Runs in provider-managed environments | Runs in isolated execution environments |
+| Inference | Trust the provider's model claims | Independently verifiable inference attestation |
+| Data protection | Relies on provider-managed data handling | Encrypted workspaces and sealed checkpoints |
+| Execution identity | Provider-managed session records | Execution bound to a specific session |
+| Integrity | Provider-managed logs and records | Hash-chained transcripts and signed receipts |
+| Auditability | Review provider-reported activity | Independently verify execution evidence |
+| Lifecycle | Persistent or shared environments | Disposable execution environments |
+
+Wayfind ONE brings these capabilities together: disposable Firecracker microVMs, attested AI inference, and cryptographically signed execution receipts.
+
+**Verifiable AI doesn't eliminate trust. It replaces assumptions with independently checkable evidence.**
 
 ## System overview
 
