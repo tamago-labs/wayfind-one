@@ -105,3 +105,7 @@ export async function conversationKeys(id: string): Promise<{ key: string; works
 export async function checkpointUrl(id: string, seq: number): Promise<{ blobKey: string; url: string; sha256: string | null }> {
   return apiFetch(`/conversations/${id}/checkpoint-url?seq=${seq}`);
 }
+
+export async function checkpointBlob(id: string, seq: number): Promise<{ blobKey: string; sha256: string | null; envelope: { sha256?: string; nonce?: string; data?: string } }> {
+  return apiFetch(`/conversations/${id}/checkpoint-blob?seq=${seq}`);
+}

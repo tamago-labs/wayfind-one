@@ -5,7 +5,7 @@ import { signOut } from 'aws-amplify/auth';
 import { MODELS } from './Catalog';
 import {
   ConversationMeta,
-  checkpointUrl,
+  checkpointBlob,
   conversationKeys,
   createConversation,
   listConversations,
@@ -337,12 +337,12 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
         setChainOk(null);
         return;
       }
-      // Latest checkpoint holds the full transcript.
+      // Latest checkpoint holds the full transcript. Relayed through the
+      // API (no S3 CORS involved) and decrypted client-side.
       const last = manifest[manifest.length - 1];
       const seq = Number(last.split(':')[0]);
-      const { url, sha256 } = await checkpointUrl(conv.conversationId, seq);
-      const blob = await (await fetch(url)).json();
-      const bytes = await openEnvelope(workspaceKey, 'transcript.jsonl', { ...blob, sha256: blob.sha256 ?? sha256 });
+      const { envelope, sha256 } = await checkpointBlob(conv.conversationId, seq);
+      const bytes = await openEnvelope(workspaceKey, 'transcript.jsonl', { ...envelope, sha256: envelope.sha256 ?? sha256 ?? undefined });
       const parsed = JSON.parse(new TextDecoder().decode(bytes)) as TranscriptEntry[];
       setEntries(parsed);
       setChainOk(await verifyTranscript(parsed));
