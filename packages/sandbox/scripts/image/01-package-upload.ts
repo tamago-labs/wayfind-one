@@ -32,14 +32,14 @@ async function main(): Promise<void> {
   copyFileSync('package.json', `${STAGE}/package.json`);
   copyFileSync('package-lock.json', `${STAGE}/package-lock.json`);
   sh(`npm ci --omit=dev --prefix ${STAGE} --no-audit --no-fund`, '.');
-  rmSync(`${STAGE}/package-lock.json`, { force: true });
-  cpSync('dist', `${STAGE}/dist`, { recursive: true });
-
-  // 2b. SBOM of the staged production tree (CycloneDX via npm).
-  const sbomJson = execSync('npm sbom --omit=dev --json', { cwd: STAGE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  // SBOM from the lockfile (not the installed tree — dev deps are omitted
+  // on purpose, and lockfile mode doesn't care what's on disk).
+  const sbomJson = execSync('npm sbom --package-lock-only --omit=dev --sbom-format cyclonedx --json', { cwd: STAGE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
   writeFileSync(`${STAGE}/sbom.json`, sbomJson);
   const sbomSha256 = createHash('sha256').update(sbomJson).digest('hex');
   console.log(`SBOM: ${JSON.parse(sbomJson).components?.length ?? '?'} components, sha256=${sbomSha256.slice(0, 12)}…`);
+  rmSync(`${STAGE}/package-lock.json`, { force: true });
+  cpSync('dist', `${STAGE}/dist`, { recursive: true });
 
   // 3. Zip: Dockerfile at root + staged bundle.
   const zipPath = `${DIR}/exec.zip`;
