@@ -576,6 +576,7 @@ function SettingsTab() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [trust, setTrust] = useState<{ imageArn?: string | null; imageVersion?: string | null; zipSha256?: string | null; sbomSha256?: string | null; builtAt?: string | null; signature?: { kid?: string } | null } | null>(null);
+  const [trustMissing, setTrustMissing] = useState(false);
 
   useEffect(() => {
     getPolicy().then((o) => {
@@ -584,7 +585,7 @@ function SettingsTab() {
       setModels((o.policy.allowedModels ?? []).join(', '));
       setTtl(String(o.policy.maxIdleTtlSeconds));
     }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
-    imageTrust().then((o) => setTrust(o.imageTrust)).catch(() => {});
+    imageTrust().then((o) => setTrust(o.imageTrust)).catch(() => setTrustMissing(true));
   }, []);
 
   async function save() {
@@ -631,7 +632,8 @@ function SettingsTab() {
       </div>
       <div className="mt-4 max-w-2xl rounded-xl border border-navy/10 bg-white p-4">
         <p className="font-semibold text-navy">Sandbox image trust</p>
-        {!trust && <p className="mt-2 text-sm text-ink">Loading…</p>}
+        {!trust && !trustMissing && <p className="mt-2 text-sm text-ink">Loading…</p>}
+        {trustMissing && <p className="mt-2 text-sm text-ink">No trust record published yet — run <span className="font-mono">03-publish-trust.ts</span> after the next image build.</p>}
         {trust && (
           <div className="mt-2 text-xs text-ink">
             <p className="break-all font-mono">{trust.imageArn ?? '(none published)'}</p>
