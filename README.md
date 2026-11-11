@@ -7,6 +7,8 @@
 - **Attested NEAR AI inference**: hardware attestation checked before the first prompt, every response signature verified against it
 - **Signed execution receipts**: who ran what, where, on which image and model, with what evidence — checkable offline with one command
 - **Independent verification**: CLI checks, website panel, and the official NEAR Verification Center widget must all agree
+- **Policy-enforced execution**: minimum security levels and allowed models, gated server-side — weaker requests fail closed, every decision audited
+- **Signed supply chain + audit trail**: the golden image ships with an SBOM and a control-plane-signed trust record; every action lands in an append-only audit log with one-command evidence export
 - Judge path takes ~10 minutes, no cloud account needed beyond a Wayfind login and a NEAR key we provide
 
 ## Overview
@@ -15,7 +17,7 @@ Regulated teams, IP-heavy companies, and consultancies all face the same blocker
 
 Wayfind ONE occupies the middle: a managed website plus a CLI where you upload a workspace, pick a task and model, run it in an isolated disposable machine with attested inference, and get the result **plus evidence**. Security reviews stop being meetings about trust and become files a pipeline can check.
 
-The backend lives in a separate repo, [`../wayfind-cloud`](../wayfind-cloud) (Next.js 14 + Amplify Gen 2: auth, data, the `wayfind-api` function, storage). This repo holds the website frontend, the CLI, the sandbox agent image, the NEAR attestation proof kit, and the product docs.
+The backend lives in a separate repo, [`../wayfind-cloud`](../wayfind-cloud) (Amplify Gen 2: auth, data, the `wayfind-api` function, storage — plus the older Next.js dashboard, untouched by this project). This repo holds the website frontend, the CLI, the sandbox agent image, the NEAR attestation proof kit, and the product docs.
 
 ## Quick links
 
@@ -45,6 +47,8 @@ Wayfind gives every conversation a private computer and a paper trail — a disp
 - **The bot:** authored once, deployed as a sealed bundle — or skip it and chat ad-hoc. Either way it runs *inside* the disposable machine, not in your browser.
 - **The computer:** one microVM per conversation, workspace pushed in sealed, used for tools and files, terminated and verified gone at the end.
 - **The trust:** attestation checked before the first prompt, every response signature verified, checkpoint chain sealed, receipt signed — then history decrypts client-side and anyone can re-verify.
+- **The rules:** per-owner policies (security floor, allowed models, TTL caps) enforced at provision; every lifecycle step lands in an append-only audit trail; one command exports the full evidence bundle.
+- **The supply chain:** the sandbox image builds reproducibly with an SBOM and ships a signed trust record — `wayfind image-trust` verifies offline what runs your code.
 
 ## User flow
 
@@ -56,7 +60,8 @@ The 10-minute judge path. Website and CLI are interchangeable — pick either:
 4. **Do it on the website.** Open a bot card → live view opens provisioned. Attach a file, ask about its contents — the bot reads the sealed workspace.
 5. **Terminate and look back.** History decrypts in the browser, chain re-verified locally. Copy the conversation id.
 6. **Verify independently.** `node bin/wayfind.js verify <id>` — 9 checks pass. Tamper one byte of a saved receipt copy — the signature check fails, the rest still pass.
-7. **Audit and export.** Activity tab (or `wayfind audit`) shows every step with actor and detail. Download the evidence bundle: receipt + sealed checkpoints + NEAR reports.
+7. **Enforce a policy.** Settings → minimum level `verified_inference`, save, then try a `standard` conversation — it fails closed with the reason. Activity tab (or `wayfind audit`) shows the policy change and every run with actor and detail.
+8. **Export evidence, check the image.** Closed conversation → Download evidence bundle (receipt + sealed checkpoints + NEAR reports). `node bin/wayfind.js image-trust` — offline Ed25519 check of the golden image, SBOM hash included.
 
 Full walkthrough with expected outputs: [Testing](#9-testing) and the worked example there.
 
@@ -159,7 +164,7 @@ A task moves through the following stages:
 
 ### Technology stack
 
-Frontend: Next.js 14 + Tailwind + Amplify (same Cognito pool as the CLI).
+Frontend: Next.js 15 + Tailwind + Amplify (same Cognito pool as the CLI).
 CLI: plain Node 20+, no framework. Agent: Node 24 on Alpine, REST + MCP
 tool server. Backend: Amplify Gen 2 (AppSync data, Lambda function URLs,
 S3). Crypto: AES-256-GCM workspaces, HKDF session keys, Ed25519 receipts,
