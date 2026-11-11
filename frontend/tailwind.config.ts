@@ -10,6 +10,16 @@ const config: Config = {
         cta: '#2F7BFF',
         ctahover: '#1F63DA',
         mist: '#F4F7FB',
+        // Mascot blob palette (same as v1)
+        bamber: '#F5A524',
+        bmoss: '#7BA05B',
+        blagoon: '#2BB3B1',
+        bash: '#9AA3AE',
+        bcoral: '#E26D5A',
+        bgrape: '#8B5CF6',
+      },
+      fontFamily: {
+        brico: ['var(--font-brico)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
     },
   },

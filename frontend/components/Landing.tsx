@@ -1,8 +1,7 @@
 'use client';
 
-import { Authenticator, ThemeProvider, Theme, useTheme, View, Text } from '@aws-amplify/ui-react';
-import Link from 'next/link';
-import { MODELS, SecurityNote } from './Catalog';
+import { Authenticator, ThemeProvider, Theme } from '@aws-amplify/ui-react';
+import Mascot from './Mascot';
 
 const theme: Theme = {
   name: 'Wayfind ONE',
@@ -26,55 +25,40 @@ const theme: Theme = {
   },
 };
 
-function PanelHeader() {
-  const { tokens } = useTheme();
-  return (
-    <View textAlign="center" padding={tokens.space.large}>
-      <Link href="/" className="text-lg font-bold text-navy">Wayfind ONE</Link>
-      <Text color="#38506B" marginTop={tokens.space.small}>Sign in to run private AI.</Text>
-    </View>
-  );
-}
-
 export default function Landing() {
   return (
     <ThemeProvider theme={theme}>
       <main className="flex min-h-screen flex-col lg:flex-row">
-        {/* Hero — ~65% */}
-        <section className="flex flex-[65] flex-col justify-center bg-navy px-8 py-14 text-white lg:px-16">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">Wayfind ONE</p>
+        {/* Hero — 50% left */}
+        <section className="flex w-full flex-col bg-navy px-8 pb-6 pt-6 text-white lg:w-[55%] lg:px-16">
+          <div className="flex flex-1 flex-col "> 
+          <div className="flex items-center gap-2.5 mt-6">
+            <Mascot color="white" size="sm" motion="none" label="Wayfind mascot" />
+            <span className="font-brico text-lg font-bold text-white">Wayfind ONE</span>
+          </div>
           <h1 className="mt-4 max-w-2xl text-4xl font-bold leading-tight lg:text-5xl">
-            Ephemeral environments for verifiable private AI.
+            Ephemeral environments for a verifiable AI workforce.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-white/80">
-            Bring your data. Choose your AI. Verify where it runs.
+            Built for organizations that need AI to work with sensitive data.
           </p>
           <ul className="mt-8 max-w-xl space-y-3 text-white/85">
-            <li><span className="font-semibold text-white">Private execution.</span> Your work runs in a disposable microVM — destroyed after, never retained.</li>
-            <li><span className="font-semibold text-white">Verified inference.</span> NEAR AI hardware attestation, checked per request — not promised, proven.</li>
-            <li><span className="font-semibold text-white">Evidence, not trust.</span> Every run ends with a signed receipt you can verify yourself.</li>
+            <li><span className="font-semibold text-white">Ephemeral execution.</span> Every task runs in an isolated microVM that is terminated when the session ends.</li>
+            <li><span className="font-semibold text-white">Verified inference.</span> NEAR AI attestation verifies the inference environment and model identity, with verification evidence recorded per request.</li>
+            <li><span className="font-semibold text-white">Verifiable evidence.</span> Every execution produces a signed receipt documenting its security checks and execution history.</li>
           </ul>
-          <div className="mt-8 flex flex-wrap gap-2">
-            {MODELS.map((m) => (
-              <span key={m.id} className="rounded-full border border-white/20 px-3 py-1 text-xs text-white/80">
-                {m.id} · {m.label}
-              </span>
-            ))}
           </div>
+          <p className="mt-auto text-xs text-white/50">© 2026 Tamago Labs Japan</p>
         </section>
 
-        {/* Login — ~35% */}
-        <section className="flex flex-[35] items-center justify-center bg-mist px-6 py-14">
-          <div className="w-full max-w-sm">
+        {/* Login — 50% right */}
+        <section className="flex w-full items-center justify-center bg-mist px-6 py-6 lg:w-[45%]">
+          <div className="w-full max-w-md">
             <Authenticator
               socialProviders={['google']}
               loginMechanisms={['email']}
-              components={{ Header: PanelHeader }}
             />
-            <div className="mt-6">
-              <SecurityNote />
-            </div>
-            <p className="mt-4 text-center text-xs text-ink">Secured by AWS Cognito · same account as the Wayfind CLI</p>
+            <p className="mt-4 text-center text-xs text-ink">Secured by AWS Cognito</p>
           </div>
         </section>
       </main>

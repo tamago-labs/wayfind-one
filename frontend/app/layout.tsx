@@ -1,16 +1,24 @@
 import type { Metadata } from 'next';
+import { Bricolage_Grotesque } from 'next/font/google';
 import ConfigureAmplify from '@/components/ConfigureAmplify';
 import './globals.css';
 
+const brico = Bricolage_Grotesque({
+  subsets: ['latin'],
+  weight: ['500', '700', '800'],
+  variable: '--font-brico',
+});
+
 export const metadata: Metadata = {
-  title: 'Wayfind ONE — private AI execution you can verify',
-  description: 'Ephemeral environments for verifiable private AI. Bring your data. Choose your AI. Verify where it runs.',
+  title: 'Wayfind ONE — Verifiable AI Workforce',
+  description:
+    'AI teammates. Ephemeral by design. Verifiable by default. Run AI workloads in isolated environments with confidential inference and verifiable security evidence.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-mist text-navy antialiased">
+      <body className={`${brico.variable} bg-mist text-navy antialiased`}>
         <ConfigureAmplify>{children}</ConfigureAmplify>
       </body>
     </html>

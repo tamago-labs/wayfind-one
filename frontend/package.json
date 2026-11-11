@@ -5,6 +5,7 @@
   "description": "Wayfind ONE website (one.wayfind.click): private AI execution you can verify.",
   "scripts": {
     "dev": "next dev",
+    "dev:fresh": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -12,7 +13,7 @@
   "dependencies": {
     "@aws-amplify/ui-react": "^6.11.2",
     "aws-amplify": "^6.6.6",
-    "next": "14.2.10",
+    "next": "15.5.29",
     "react": "^18",
     "react-dom": "^18"
   },
@@ -21,6 +22,8 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.29",
     "postcss": "^8.4.40",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.6.2"
