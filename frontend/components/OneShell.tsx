@@ -307,6 +307,13 @@ function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }
           Send
         </button>
       </div>
+      <div className="mt-2 flex items-center gap-2">
+        <label className={`cursor-pointer rounded-lg border border-navy/15 px-3 py-1.5 text-sm text-ink hover:bg-mist ${busy ? 'pointer-events-none opacity-50' : ''}`}>
+          Attach files
+          <input type="file" multiple className="hidden" disabled={busy} onChange={(e) => { attach(e.target.files); e.target.value = ''; }} />
+        </label>
+        {attachInfo && <p className="text-xs text-ink">{attachInfo}</p>}
+      </div>
       <Err message={error} />
     </div>
   );
@@ -323,7 +330,8 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
     setError(null);
     try {
       const { workspaceKey } = await conversationKeys(conv.conversationId);
-      const manifest = conv.checkpointManifest ?? [];
+      // Row manifest first, receipt copy as fallback (pre-persist-fix rows).
+      const manifest = (conv.checkpointManifest?.length ? conv.checkpointManifest : conv.receipt?.checkpointManifest ?? []);
       if (manifest.length === 0) {
         setEntries([]);
         setChainOk(null);
@@ -347,7 +355,7 @@ function ClosedConversation({ conv }: { conv: ConversationMeta }) {
 
   return (
     <div className="mt-2 text-xs text-ink">
-      <p>Closed · checkpoints {conv.checkpointManifest.length} · {conv.receipt ? 'receipt present — see Verify tab' : 'no receipt'}</p>
+      <p>Closed · checkpoints {(conv.checkpointManifest?.length ? conv.checkpointManifest.length : conv.receipt?.checkpointManifest?.length) ?? 0} · {conv.receipt ? 'receipt present — see Verify tab' : 'no receipt'}</p>
       {entries === null && (
         <button onClick={loadHistory} disabled={loading} className="mt-2 rounded-lg border border-navy/15 px-3 py-1 hover:bg-mist disabled:opacity-50">
           {loading ? 'Decrypting…' : 'Load history (decrypted client-side)'}
