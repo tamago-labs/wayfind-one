@@ -92,6 +92,8 @@ export async function teamChat(botId: string, text: string, ownerId?: string): P
 
 export interface RunEvent {
   type?: string;
+  chunk?: string;
+  agent?: string;
   output?: string;
   error?: string;
 }
@@ -100,16 +102,39 @@ export async function runEvents(runId: string, cursor = 0): Promise<{ events: Ru
   return teamFetch(`/runs/${runId}/events?cursor=${cursor}`);
 }
 
-/** Poll a run to completion (proxy buffers SSE — events polling is the path). */
-export async function waitForRun(runId: string, onTick?: (events: RunEvent[]) => void): Promise<string> {
+export interface RunHandlers {
+  onChunk?: (delta: string) => void;
+  onAgent?: (label: string) => void;
+}
+
+/**
+ * Progressive run follower (mirrors wayfind-cloud streamRunProgressive):
+ * polls the events endpoint ~1/s and dispatches chunk deltas as they land,
+ * so the reply renders token-by-token instead of popping in at done.
+ * The cloud relay buffers SSE, so polling IS the streaming path.
+ */
+export async function waitForRun(runId: string, handlers: RunHandlers = {}, timeoutMs = 600_000): Promise<string> {
   let cursor = 0;
+  let output = '';
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
+    if (Date.now() > deadline) throw new Error('agent run timed out');
     const { events, nextCursor, done } = await runEvents(runId, cursor);
     cursor = nextCursor;
-    if (onTick && events.length > 0) onTick(events);
-    const hit = events.find((e) => e.type === 'done');
-    if (hit) return hit.output ?? '';
-    if (done) throw new Error('run finished with no done event');
+    for (const e of events ?? []) {
+      if (e.type === 'chunk' && typeof e.chunk === 'string') {
+        output += e.chunk;
+        handlers.onChunk?.(e.chunk);
+      } else if (e.type === 'agent' && typeof e.agent === 'string') {
+        handlers.onAgent?.(e.agent);
+      } else if (e.type === 'done') {
+        if (typeof e.output === 'string') output = e.output;
+        return output;
+      } else if (e.type === 'error') {
+        throw new Error(typeof e.error === 'string' ? e.error : 'agent run failed');
+      }
+    }
+    if (done) return output;
     await new Promise((r) => setTimeout(r, 1000));
   }
 }

@@ -161,8 +161,8 @@ export default function OneShell({ email }: { email?: string }) {
         onSelectBot={setSelectedId}
         onNewBot={() => setModalOpen(true)}
       />
-      <main className="flex flex-1 flex-col p-8">
-        <div className="mb-4 md:hidden">
+      <main className="flex min-w-0 flex-1 flex-col bg-thread">
+        <div className="px-4 pt-4 md:hidden">
           <button
             onClick={() => setNavOpen(true)}
             aria-label="Open navigation"

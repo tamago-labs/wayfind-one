@@ -12,6 +12,7 @@ const config: Config = {
         cta: '#2F7BFF',
         ctahover: '#1F63DA',
         mist: '#F4F7FB',
+        thread: '#F7FDFA',
         // Mascot blob palette (same as v1)
         bamber: '#F5A524',
         bmoss: '#7BA05B',

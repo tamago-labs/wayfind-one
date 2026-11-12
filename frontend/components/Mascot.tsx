@@ -14,6 +14,8 @@ export interface MascotProps {
   blink?: MascotBlink;
   motion?: MascotMotion;
   shape?: MascotShape;
+  /** Stagger the blink phase (roster shimmer parity). */
+  blinkDelay?: string;
   className?: string;
   label?: string;
 }
@@ -66,6 +68,7 @@ export default function Mascot({
   blink = 'calm',
   motion = 'none',
   shape = 'blob',
+  blinkDelay,
   className = '',
   label,
 }: MascotProps) {
@@ -84,8 +87,8 @@ export default function Mascot({
       </>
     ) : (
       <>
-        <span className={`absolute top-[40%] left-[30%] h-[14%] w-[11%] rounded-full bg-navy ${blinkCls}`} />
-        <span className={`absolute top-[40%] right-[30%] h-[14%] w-[11%] rounded-full bg-navy ${blinkCls}`} />
+        <span className={`absolute top-[40%] left-[30%] h-[14%] w-[11%] rounded-full bg-navy ${blinkCls}`} style={blinkDelay ? { animationDelay: blinkDelay } : undefined} />
+        <span className={`absolute top-[40%] right-[30%] h-[14%] w-[11%] rounded-full bg-navy ${blinkCls}`} style={blinkDelay ? { animationDelay: blinkDelay } : undefined} />
       </>
     );
 
