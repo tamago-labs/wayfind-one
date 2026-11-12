@@ -1,0 +1,35 @@
+{
+  "name": "wayfind-outer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wayfind ONE outer sandbox: team agent server for the shared computer (bots as files, Modal-hosted Meta models, hash-chained team history). Forked from wayfind-cloud packages/computer; the two images deploy independently.",
+  "type": "module",
+  "bin": {
+    "wayfind": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "cli": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@openai/agents": "^0.18.0",
+    "@openai/agents-openai": "^0.18.0",
+    "dotenv": "^17.4.2",
+    "openai": "^7.10.0",
+    "turndown": "^7.2.4",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-lambda-microvms": "^3.1167.0",
+    "@types/archiver": "^8.0.0",
+    "@types/node": "^20",
+    "@types/turndown": "^5.0.6",
+    "archiver": "^8.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2"
+  }
+}

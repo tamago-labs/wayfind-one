@@ -1,0 +1,324 @@
+{
+  "rules": [
+    {
+      "permission": "schedule_task",
+      "pattern": "Bangkok time in 15 minutes",
+      "action": "allow"
+    },
+    {
+      "permission": "schedule_task",
+      "pattern": "Bangkok time reminder - 15 min",
+      "action": "allow"
+    },
+    {
+      "permission": "schedule_task",
+      "pattern": "Bangkok time reminder",
+      "action": "allow"
+    },
+    {
+      "permission": "schedule_task",
+      "pattern": "drink water reminder",
+      "action": "allow"
+    },
+    {
+      "permission": "ZohoMCP_ZohoCRM_getLeadsRecords",
+      "pattern": "{\"query_params\": {\"fields\": \"id,First_Name,Last_Name,Email,Company\", \"per_page\": 3}}",
+      "action": "allow"
+    },
+    {
+      "permission": "ZohoMCP_ZohoCRM_getLeadsRecords",
+      "pattern": "{\"query_params\": {\"fields\": \"Last_Name,First_Name,Company,Email\", \"page\": 1, \"per_page\": 3, \"sort_by\": \"Created_Time\", \"sort_order\": \"desc\"}}",
+      "action": "allow"
+    },
+    {
+      "permission": "ZohoMCP_ZohoCRM_getLeadsRecords",
+      "pattern": "{\"query_params\": {\"fields\": \"Last_Name,First_Name,Company,Email,Created_Time\", \"page\": 1, \"per_page\": 3, \"sort_by\": \"Created_Time\", \"sort_order\": \"desc\"}}",
+      "action": "allow"
+    },
+    {
+      "permission": "ZohoMCP_ZohoCRM_getLeadsRecords",
+      "pattern": "{\"query_params\": {\"fields\": \"Full_Name,Company,Email\", \"page\": 1, \"per_page\": 3, \"sort_by\": \"Created_Time\", \"sort_order\": \"desc\"}}",
+      "action": "allow"
+    },
+    {
+      "permission": "ZohoMCP_ZohoCRM_getLeadsRecords",
+      "pattern": "{\"query_params\": {\"page\": 1, \"per_page\": 3, \"sort_by\": \"Created_Time\", \"sort_order\": \"desc\"}}",
+      "action": "allow"
+    },
+    {
+      "permission": "ZohoMCP_ZohoCRM_getLeadsRecords",
+      "pattern": "{\"query_params\": {}}",
+      "action": "allow"
+    },
+    {
+      "permission": "edit",
+      "pattern": "mcp.json",
+      "action": "allow"
+    },
+    {
+      "permission": "wayfind_arc_get_balances",
+      "pattern": "{\"chain\": \"ethereum\", \"walletAddress\": null}",
+      "action": "allow"
+    },
+    {
+      "permission": "wayfind_arc_get_balances",
+      "pattern": "{\"chain\": \"base\", \"walletAddress\": null}",
+      "action": "allow"
+    },
+    {
+      "permission": "wayfind_arc_get_unified_balance",
+      "pattern": "{}",
+      "action": "allow"
+    },
+    {
+      "permission": "wayfind_arc_get_balances",
+      "pattern": "{\"chain\": \"arc\", \"walletAddress\": null}",
+      "action": "allow"
+    },
+    {
+      "permission": "wayfind_arc_get_wallet_address",
+      "pattern": "{}",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Get-Content mcp.json -Raw\nWrite-Host \"---\"\nGet-ChildItem Env: | Where-Object { $_.Name -match \"WALLET|WAYFIND\" } | Format-Table Name,Value -AutoSize",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Write-Host \"=== permissions.json ===\"; Get-Content permissions.json; Write-Host \"\"; Write-Host \"=== providers.json ===\"; Get-Content providers.json; Write-Host …",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Write-Host \"=== mcp.json ===\"; Get-Content mcp.json; Write-Host \"\"; Write-Host \"=== .wayfind dir ===\"; Get-ChildItem -Force .wayfind | Format-Table Name,Length …",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Write-Host \"=== ENV CHECK ===\"; Get-ChildItem Env: | Where-Object { $_.Name -match \"WALLET|WAYFIND\" } | ForEach-Object { \"$($_.Name)=***\" }; if (-not (Get-Child…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "echo \"=== ENV CHECK ===\"; env | grep -E \"WALLET_PASSKEY|WAYFIND\" | sed 's/=.*/=***/' ; echo \"\"; echo \"=== NPM GLOBAL PACKAGE ===\"; npm list -g @tamago-labs/wayf…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "$env:WALLET_PASSKEY=\"ohmohmohmohm\"; $env:WAYFIND_NETWORK=\"testnet\"; npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "$env:WALLET_PASSKEY=\"ohmohmohmohm\"; $env:WAYFIND_NETWORK=\"testnet\"; npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1 | head -n 200",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "WALLET_PASSKEY=ohmohmohmohm WAYFIND_NETWORK=testnet npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1 | head -n 100",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Get-ChildItem Env: | Where-Object { $_.Name -match \"WALLET|WAYFIND|ARC\" }; Write-Output \"---CHECK MCP---\"; npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "ls -la; echo \"---ENV---\"; env | grep -i -E \"WALLET|WAYFIND|ARC\" | sed 's/=.*/=***/'; echo \"---npx check---\"; npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1 | h…",
+      "action": "allow"
+    },
+    {
+      "permission": "skill",
+      "pattern": "arc",
+      "action": "allow"
+    },
+    {
+      "permission": "import_skill",
+      "pattern": "https://raw.githubusercontent.com/tamago-labs/wayfind-arc/refs/heads/main/skills/plugins/arc/skills/arc/SKILL.md",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "$env:WALLET_PASSKEY=\"ohmohmohmohm\"\n$env:WAYFIND_NETWORK=\"testnet\"\nnode \"C:\\Users\\pisut\\AppData\\Roaming\\npm\\node_modules\\@tamago-labs\\wayfind-arc-mcp\\dist\\index.…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Get-ChildItem \"$env:LOCALAPPDATA\\npm-cache\\_npx\" -Directory | Select-Object Name\nnpm list -g @tamago-labs/wayfind-arc-mcp --depth=0",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm install -g @tamago-labs/wayfind-arc-mcp --force",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm install -g @tamago-labs/wayfind-arc-mcp --force 2>&1 | tail -n 50",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm cache clean --force\nRemove-Item -Recurse -Force \"$env:LOCALAPPDATA\\npm-cache\\_npx\" -ErrorAction SilentlyContinue\nWrite-Host \"cleared\"",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npx -y @tamago-labs/wayfind-arc-mcp --help",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "echo \"checking mcp server status\" && npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1 | head -n 200",
+      "action": "allow"
+    },
+    {
+      "permission": "install_mcp_server",
+      "pattern": "[\"npx\",\"-y\",\"@tamago-labs/wayfind-arc-mcp\"]",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Invoke-WebRequest -Uri \"https://registry.npmjs.org/@tamago-labs/wayfind-arc-mcp/-/wayfind-arc-mcp-0.2.0.tgz\" -OutFile \"$env:TEMP/wayfind.tgz\"; tar -xzf \"$env:TE…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "mkdir -p /tmp/wayfind; curl -sL https://registry.npmjs.org/@tamago-labs/wayfind-arc-mcp/-/wayfind-arc-mcp-0.2.0.tgz -o /tmp/wayfind.tgz; tar -xzf /tmp/wayfind.t…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm view @tamago-labs/wayfind-arc-mcp dist --json 2>&1\n; curl -s https://registry.npmjs.org/@tamago-labs/wayfind-arc-mcp/-/wayfind-arc-mcp-0.2.0.tgz | tar -tz 2…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm pack @tamago-labs/wayfind-arc-mcp --dry-run 2>&1; npx -y @tamago-labs/wayfind-arc-mcp --help 2>&1 | Select-Object -First 100",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm view @tamago-labs/wayfind-arc-mcp --json 2>&1 | head -n 200",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "mkdir \"$env:TEMP\\wayfind-extract\" -Force | Out-Null\ntar -xzf \"$env:TEMP\\wayfind.tgz\" -C \"$env:TEMP\\wayfind-extract\"\nGet-Content \"$env:TEMP\\wayfind-extract\\packa…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm cache clean --force\nmkdir -p \"$env:TEMP\\wayfind-test\" 2>$null; $env:TEMP\n# Try download tarball and inspect\nInvoke-WebRequest -Uri \"https://registry.npmjs.o…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npx -y @tamago-labs/wayfind-arc-mcp --help\n",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm view @tamago-labs/wayfind-arc-mcp dist.tarball\nnpx -y @tamago-labs/wayfind-arc-mcp --help",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm view @tamago-labs/wayfind-arc-mcp --json",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "npm view @tamago-labs/wayfind-arc-mcp --json 2>&1 | head -n 200; echo \"---\"; npm pack @tamago-labs/wayfind-arc-mcp --dry-run 2>&1 | head -n 50",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "Get-ChildItem -Force; Write-Host \"---DELETING---\"; Remove-Item -Force -Verbose \"Screenshot 2026-05-11 175839.png\"; Write-Host \"---AFTER---\"; Get-ChildItem -Forc…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "ls -la && rm -v \"Screenshot 2026-05-11 175839.png\" && echo \"---AFTER---\" && ls -la",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "rm -v \"./Screenshot 2026-05-11 175839.png\" 2>&1; echo EXIT:$?; ls -la 2>&1 | head -n 50",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "ls -laR 2>&1 | head -n 200; echo \"---FIND IMAGES---\"; find . -type f \\( -iname \"*.png\" -o -iname \"*.jpg\" -o -iname \"*.jpeg\" -o -iname \"*.gif\" -o -iname \"*.webp\"…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "pwd; ls -la",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "rm -v \"Screenshot 2026-05-11 175839.png\" 2>&1; echo \"---\"; ls -lh 2>&1",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "find . -type f \\( -iname \"*.png\" -o -iname \"*.jpg\" -o -iname \"*.jpeg\" -o -iname \"*.gif\" -o -iname \"*.webp\" -o -iname \"*.svg\" -o -iname \"*.bmp\" -o -iname \"*.ico\"…",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "ls -la",
+      "action": "allow"
+    },
+    {
+      "permission": "shell",
+      "pattern": "ls -R -lh | head -n 100; echo \"---\"; find . -type f \\( -iname \"*.png\" -o -iname \"*.jpg\" -o -iname \"*.jpeg\" -o -iname \"*.gif\" -o -iname \"*.webp\" -o -iname \"*.svg…",
+      "action": "allow"
+    },
+    {
+      "permission": "write",
+      "pattern": "poem-2.txt",
+      "action": "allow"
+    },
+    {
+      "permission": "write",
+      "pattern": "poem-1.txt",
+      "action": "allow"
+    },
+    {
+      "permission": "write",
+      "pattern": "poem.txt",
+      "action": "allow"
+    },
+    {
+      "permission": "grounded_search",
+      "pattern": "Thailand medals Asian Games 2026 Aichi Nagoya medal tally",
+      "action": "allow"
+    },
+    {
+      "permission": "grounded_search",
+      "pattern": "who won the most recent Formula 1 Grand Prix May 2026",
+      "action": "allow"
+    },
+    {
+      "permission": "grounded_search",
+      "pattern": "most recent Formula 1 Grand Prix winner 2026",
+      "action": "allow"
+    },
+    {
+      "permission": "import_skill",
+      "pattern": "npx skills add vercel-labs/agent-skills/skills/react-best-practices",
+      "action": "allow"
+    },
+    {
+      "permission": "write",
+      "pattern": "bangkok-vs-chiangmai-apartments.md",
+      "action": "allow"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "wayfind-arc": {
+      "command": [
+        "npx",
+        "-y",
+        "@tamago-labs/wayfind-arc-mcp"
+      ],
+      "environment": {
+        "WALLET_PASSKEY": "ohmohmohmohm",
+        "WAYFIND_NETWORK": "testnet"
+      }
+    },
+    "ZohoMCP": {
+      "url": "https://wayfind-dev-944927607.zohomcp.com/mcp/3534b5df2017e642ce569099871944e3/message"
+    }
+  }
+}
