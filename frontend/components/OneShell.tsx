@@ -21,6 +21,8 @@ export default function OneShell({ email }: { email?: string }) {
     setBootError(null);
     try {
       await ensureComputer('one_outer', (p, row) => {
+        // Breadcrumb for stuck-boot reports: phase trail in the console.
+        console.info('[computer]', p);
         setPhase(p);
         if (row) setComputer(row);
       });
@@ -92,7 +94,7 @@ export default function OneShell({ email }: { email?: string }) {
           </div>
         )}
 
-        <TeamChat disabled={!ready} disabledHint={bootHint} />
+        <TeamChat disabled={!ready} disabledHint={bootHint} ready={ready} />
       </main>
       <TrustCenterPanel open={trustOpen} onClose={() => setTrustOpen(false)} onCreated={handleCreated} initialSection={trustSection} openRequest={openRequest} />
     </div>

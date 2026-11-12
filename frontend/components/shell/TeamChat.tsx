@@ -5,8 +5,10 @@ import { Bot, Plus, Send } from 'lucide-react';
 import { HistoryEntry, TeamBot, listTeamBots, saveTeamBot, teamChat, teamHistory, waitForRun } from '@/lib/team';
 import { Err } from './shared';
 
-/** Team chat: bot roster (files on the outer computer) + per-bot thread. */
-export default function TeamChat({ disabled, disabledHint }: { disabled?: boolean; disabledHint?: string | null }) {
+/** Team chat: bot roster (files on the outer computer) + per-bot thread.
+ * Team fetches wait for ready — calling /team/* while the computer is
+ * still booting 404s (nothing provisioned yet), which is not an error. */
+export default function TeamChat({ disabled, disabledHint, ready }: { disabled?: boolean; disabledHint?: string | null; ready: boolean }) {
   const [bots, setBots] = useState<TeamBot[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
@@ -26,21 +28,36 @@ export default function TeamChat({ disabled, disabledHint }: { disabled?: boolea
       const list = await listTeamBots();
       setBots(list);
       setOuterMissing(false);
+      setError(null);
       const active = list.filter((b) => b.status !== 'paused');
       const pick = (select && list.find((b) => b.id === select)) ?? active[0] ?? null;
       setSelectedId(pick ? pick.id : null);
       if (!pick) setEntries([]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // Classic image (pre-deploy): /team/* doesn't exist there.
+      // Technical cause stays in the console — the UI keeps one calm sentence.
+      console.error('[team] roster load failed:', msg);
+      // Classic image (or any backend without /team/*) 404s here.
       if (/404|no provisioned|not found/i.test(msg)) setOuterMissing(true);
-      else setError(msg);
+      else setError('Could not load your team — try again.');
     }
   }, []);
 
+  // Gated on ready (calling /team/* mid-boot 404s — that is not an error),
+  // with a retry net: if the roster is still null with no error recorded,
+  // the first attempt was missed or hung, so keep trying while it is.
   useEffect(() => {
+    if (!ready || bots !== null || error || outerMissing) return;
+    let cancelled = false;
     loadBots();
-  }, [loadBots]);
+    const timer = setInterval(() => {
+      if (!cancelled) loadBots();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [ready, bots, error, outerMissing, loadBots]);
 
   const loadHistory = useCallback(async (botId: string) => {
     try {
@@ -102,14 +119,10 @@ export default function TeamChat({ disabled, disabledHint }: { disabled?: boolea
     return (
       <div className="grid flex-1 place-items-center rounded-2xl border border-dashed border-navy/15 bg-white/60 p-10 text-center">
         <div>
-          <p className="font-brico text-lg font-bold text-navy">Outer computer required</p>
-          <p className="mx-auto mt-2 max-w-md text-sm text-navy/70">
-            This computer doesn&apos;t serve the team endpoints — it&apos;s the classic image. Deploy the backend with{' '}
-            <span className="font-mono">ONE_OUTER_IMAGE_ARN</span> set, then provision with kind{' '}
-            <span className="font-mono">one_outer</span>.
-          </p>
+          <p className="font-brico text-lg font-bold text-navy">Team chat isn&apos;t available on this computer yet</p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-navy/70">It may still be starting — wait a moment and try again.</p>
           <button onClick={() => loadBots()} className="mt-4 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy/90">
-            Retry
+            Try again
           </button>
         </div>
       </div>
