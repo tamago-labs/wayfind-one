@@ -26,7 +26,7 @@ export function CopyId({ id }: { id: string }) {
     setTimeout(() => setCopied(false), 1500);
   }
   return (
-    <button onClick={copy} title="Copy full conversation id" className="rounded px-1 font-mono text-xs text-ink hover:bg-mist">
+    <button onClick={copy} title="Copy full sandbox id" className="rounded px-1 font-mono text-xs text-ink hover:bg-mist">
       {id.slice(0, 8)}… {copied ? 'copied' : 'copy'}
     </button>
   );

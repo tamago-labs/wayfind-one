@@ -10,11 +10,11 @@ import ProfileModal from './ProfileModal';
 
 /**
  * Sidebar bottom (mirrors wayfind-cloud RosterFooter footer block):
- * display-name row + avatar/menu popup + Trust center pill (placeholder).
+  * display-name row + avatar/menu popup + Sandboxes pill (placeholder).
  * Cloud-only pieces (computer lifecycle, Usage, Connectors, seed bot)
  * are intentionally not ported.
  */
-export default function SidebarFooter({ email, onSettings, onTrustCenter }: { email?: string; onSettings: () => void; onTrustCenter: () => void }) {
+export default function SidebarFooter({ email, onSettings, onSandboxes }: { email?: string; onSettings: () => void; onSandboxes: () => void }) {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [nameOpen, setNameOpen] = useState(false);
@@ -141,13 +141,13 @@ export default function SidebarFooter({ email, onSettings, onTrustCenter }: { em
             {initial}
           </button>
         </span>
-        {/* Trust center — opens the evidence slide-in panel. */}
+        {/* Sandboxes — opens the evidence slide-in panel. */}
         <button
-          onClick={onTrustCenter}
+          onClick={onSandboxes}
           className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-full bg-white py-2.5 font-semibold text-navy shadow-sm hover:bg-slate-50"
         >
           <ShieldCheck className="h-4 w-4" strokeWidth={2.2} />
-          Trust center
+          Sandboxes
         </button>
       </div>
       <ProfileModal

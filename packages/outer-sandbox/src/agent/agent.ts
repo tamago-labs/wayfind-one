@@ -16,6 +16,7 @@ import { createBuiltinTools } from './tools/builtin.js';
 import { createQuestionTool, type AskHook } from './tools/question.js';
 import { createBotRequestTool, type BotRequestHook } from './tools/create_bot.js';
 import { createMessageBotTool, rosterDirectory, type MessageRunner, type RosterEntry } from './tools/message_bot.js';
+import { createSpawnInnerSandboxTool } from './tools/spawn_inner_sandbox.js';
 import { createTaskTool, type RunChild } from './tools/task.js';
 import { createGroundedSearchTool } from './tools/grounded.js';
 import { createClockTool } from './tools/clock.js';
@@ -37,6 +38,7 @@ const BASE_INSTRUCTIONS =
   ' Skill docs sometimes suggest `npm install -g`, shell env checks, or cache cleaning — do not follow those: ' +
   'never global-install, never probe env via shell, never clean caches or delete things unprompted. ' +
   'Read files with read_file/glob, install servers with install_mcp_server, restart them with restart_mcp_server.' +
+  ' If the task involves sensitive files or data, call spawn_inner_sandbox — it runs the work in a disposable attested sandbox. ' +
   SKILL_IMPORT_GUIDANCE;
 
 export interface AgentSelection {
@@ -47,7 +49,7 @@ export interface AgentSelection {
 }
 
 /** Tools unavailable to read-only research subagents. */
-const RESEARCH_DENY = new Set(['write', 'edit', 'shell', 'task', 'question', 'import_skill', 'create_bot', 'message_bot', 'generate_image', 'edit_image', 'install_mcp_server', 'restart_mcp_server', 'schedule_task']);
+const RESEARCH_DENY = new Set(['write', 'edit', 'shell', 'task', 'question', 'import_skill', 'create_bot', 'message_bot', 'generate_image', 'edit_image', 'install_mcp_server', 'restart_mcp_server', 'schedule_task', 'spawn_inner_sandbox']);
 
 /** Cross-bot messaging: runner + visible roster. isChief selects the guidance voice. */
 export interface TeamChannel {
@@ -138,6 +140,10 @@ export async function createTriageAgent(
   // the model only ever sees the tool when the hook is wired.
   if (botRequest) tools.push(createBotRequestTool(botRequest));
   if (team) tools.push(createMessageBotTool(team.send, opts));
+  // Escalation stub (Phase 2 builds behavior): sensitive work goes to a
+  // disposable attested inner sandbox via this bounded tool call — never a
+  // handoff, never a sub-agent. Research subagents are denied above.
+  tools.push(createSpawnInnerSandboxTool(opts));
   const names = tools.map((t) => (t as { name: string }).name);
   if (!loggedTools) {
     loggedTools = true;

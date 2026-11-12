@@ -57,6 +57,46 @@ Locked inputs (2026-11-12):
   **Update: do the label rename now** (labels-only, kills doc/code drift);
   the old six-section Trust Center becomes the Sandboxes panel in Phase 4.
 
+## Target UX — what "done" looks like (finance bot + HR bot)
+
+The canonical flow the phases below must deliver, shown once in full
+(finance) and repeated by every team bot (HR):
+
+1. **Create the team.** App boots the outer computer. New Bot → finance
+   bot (role, description, what counts as sensitive); New Bot → HR bot.
+   Optional chief-of-staff star. Bots persist as `team/bots/*.json`.
+2. **Train until confident.** Ordinary outer chat (`observed`, Meta/Modal):
+   paste policy docs, run dry-runs on fake data, correct mistakes. History
+   accumulates hash-chained in `team/history/<bot>.jsonl`.
+3. **Pin what it knows.** BotPanel → Briefing → `team/briefs/<bot>.md`,
+   versioned + S3-synced. Briefing + history is the bot's memory; the
+   escalation later binds to the briefing version.
+4. **Trigger — chat or UI, same tool.** Chat: "Review the attached March
+   invoices" + file → bot classifies sensitive → approval dialog
+   (manual mode) → approve. UI: composer "Run in sandbox" action + file
+   picker → same path, one click less. Auto-logged mode collapses
+   classify+approve into classify+log. The attachment is held client-side;
+   the outer VM never receives the bytes.
+5. **Sandbox run.** Fresh inner MicroVM (`verified_inference` only);
+   files pushed sealed direct-to-inner, never touching outer disk or outer
+   context. Attestation preflight fails closed before any prompt. Bounded
+   single-agent tool loop (read/grep/local exec, NEAR-API-only egress),
+   per-iteration signature verify, progress events in the outer thread.
+6. **Mid-run uploads.** Attach in the thread → sealed direct-to-inner
+   envelope appended to the running sandbox. Outer still never sees bytes.
+7. **Close-out.** Final sealed checkpoint → receipt binding
+   `{ outerComputerId, innerSandboxId, taskDescriptorHash }` → verified VM
+   destroy. Result streams back with an evidence badge (outer `observed`,
+   inner `hardware-attested`).
+8. **Verify + export.** Sandboxes panel shows the nested run; panel check,
+   CLI `verify`, NEAR widget must all agree; one-click evidence bundle.
+   HR bot repeats the identical pattern — different bot, different
+   briefing, same machinery.
+
+Mental model: train in the open (outer, `observed`) until the bot knows
+the job — then sensitive bytes skip the outer entirely and land sealed in
+a disposable attested sandbox, and what comes back is a result plus proof.
+
 ## 0. Terminology (used throughout)
 
 - **Computer (outer sandbox):** one persistent per-user VM, suspend/resume

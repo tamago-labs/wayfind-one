@@ -19,7 +19,7 @@ export default function VerifySection() {
     setServerCheck(null);
     const trimmed = input.trim();
     if (!trimmed) {
-      setError('Paste a receipt JSON or a conversation id.');
+      setError('Paste a receipt JSON or a sandbox id.');
       return;
     }
     try {
@@ -30,7 +30,7 @@ export default function VerifySection() {
         const convs = await listConversations();
         const conv = convs.find((c) => c.conversationId === trimmed);
         if (!conv?.receipt) {
-          setError('No receipt on that conversation (only closed ones carry one).');
+          setError('No receipt on that sandbox (only closed ones carry one).');
           return;
         }
         receipt = conv.receipt;
@@ -56,7 +56,7 @@ export default function VerifySection() {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         rows={4}
-        placeholder='Paste receipt JSON, or a conversation id'
+        placeholder='Paste receipt JSON, or a sandbox id'
         className="mt-4 w-full rounded-xl border border-navy/15 bg-white px-3 py-2 font-mono text-xs text-navy"
       />
       <button onClick={run} className="mt-2 rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover">

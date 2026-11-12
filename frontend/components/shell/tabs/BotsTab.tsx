@@ -49,7 +49,7 @@ export default function BotsSection({ onCreated }: { onCreated: (id: string) => 
               disabled={starting !== null}
               className="mt-3 rounded-lg bg-cta px-3 py-1.5 text-sm text-white hover:bg-ctahover disabled:opacity-50"
             >
-              {starting === b.id ? 'Provisioning…' : 'Start private conversation'}
+              {starting === b.id ? 'Provisioning…' : 'Start private sandbox'}
             </button>
           </div>
         ))}

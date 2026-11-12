@@ -262,7 +262,7 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
 
   return (
     <div>
-      <p className="text-sm text-ink">One conversation = one disposable execution session.</p>
+      <p className="text-sm text-ink">One sandbox = one disposable execution session.</p>
       <Err message={error} />
       <div className="mt-4 space-y-2">
         {(convs ?? []).map((c) => (
@@ -285,7 +285,7 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
             )}
           </div>
         ))}
-        {convs !== null && convs.length === 0 && <p className="text-sm text-ink">No conversations yet.</p>}
+        {convs !== null && convs.length === 0 && <p className="text-sm text-ink">No sandboxes yet.</p>}
       </div>
     </div>
   );

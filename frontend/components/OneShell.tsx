@@ -7,7 +7,7 @@ import TeamChat from './shell/TeamChat';
 import BotPanel from './shell/BotPanel';
 import NewBotModal from './shell/NewBotModal';
 import SettingsModal from './shell/settings/SettingsModal';
-import TrustCenterPanel, { type TrustSection } from './shell/TrustCenterPanel';
+import SandboxesPanel, { type SandboxSection } from './shell/SandboxesPanel';
 import { BootPhase, ComputerRow, ensureComputer } from '@/lib/computer';
 import { BotEdits, TeamBot, deleteTeamBot, listTeamBots, saveTeamBot } from '@/lib/team';
 
@@ -15,8 +15,8 @@ import { BotEdits, TeamBot, deleteTeamBot, listTeamBots, saveTeamBot } from '@/l
 export default function OneShell({ email }: { email?: string }) {
   const [openRequest, setOpenRequest] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-  const [trustOpen, setTrustOpen] = useState(false);
-  const [trustSection, setTrustSection] = useState<TrustSection>('verify');
+  const [sandboxesOpen, setSandboxesOpen] = useState(false);
+  const [sandboxSection, setSandboxSection] = useState<SandboxSection>('verify');
   const [phase, setPhase] = useState<BootPhase>('checking');
   const [, setComputer] = useState<ComputerRow | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -101,10 +101,10 @@ export default function OneShell({ email }: { email?: string }) {
     [loadBots],
   );
 
-  const openTrust = (s: TrustSection) => {
-    setTrustSection(s);
+  const openSandboxes = (s: SandboxSection) => {
+    setSandboxSection(s);
     setNavOpen(false);
-    setTrustOpen(true);
+    setSandboxesOpen(true);
   };
 
   const saveBotEdits = useCallback(
@@ -137,7 +137,7 @@ export default function OneShell({ email }: { email?: string }) {
 
   const handleCreated = (id: string) => {
     setOpenRequest(id);
-    openTrust('conversations');
+    openSandboxes('sandboxes');
   };
 
   const selected = bots?.find((b) => b.id === selectedId) ?? null;
@@ -159,7 +159,7 @@ export default function OneShell({ email }: { email?: string }) {
           setNavOpen(false);
           setSettingsOpen(true);
         }}
-        onTrustCenter={() => openTrust('verify')}
+        onSandboxes={() => openSandboxes('verify')}
         bots={bots ?? []}
         selectedId={selectedId}
         busyId={busyId}
@@ -236,7 +236,7 @@ export default function OneShell({ email }: { email?: string }) {
       />
       <BotPanel open={panelOpen} onClose={() => setPanelOpen(false)} bot={selected} onSave={saveBotEdits} onDelete={deleteBot} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <TrustCenterPanel open={trustOpen} onClose={() => setTrustOpen(false)} onCreated={handleCreated} initialSection={trustSection} openRequest={openRequest} />
+      <SandboxesPanel open={sandboxesOpen} onClose={() => setSandboxesOpen(false)} onCreated={handleCreated} initialSection={sandboxSection} openRequest={openRequest} />
     </div>
   );
 }

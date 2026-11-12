@@ -12,7 +12,7 @@ interface SidebarProps {
   open: boolean;
   onClose: () => void;
   onSettings: () => void;
-  onTrustCenter: () => void;
+  onSandboxes: () => void;
   bots: TeamBot[];
   selectedId: string | null;
   busyId: string | null;
@@ -22,7 +22,7 @@ interface SidebarProps {
 }
 
 /** App sidebar (mirrors wayfind-cloud Roster): overlay + panel + header + team roster + footer. */
-export default function Sidebar({ email, open, onClose, onSettings, onTrustCenter, bots, selectedId, busyId, rosterReady, onSelectBot, onNewBot }: SidebarProps) {
+export default function Sidebar({ email, open, onClose, onSettings, onSandboxes, bots, selectedId, busyId, rosterReady, onSelectBot, onNewBot }: SidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [query, setQuery] = useState('');
   const visible = query.trim()
@@ -81,7 +81,7 @@ export default function Sidebar({ email, open, onClose, onSettings, onTrustCente
         ) : (
           <div className="flex-1 px-4 py-2 text-sm text-navy/50">Loading team…</div>
         )}
-        <SidebarFooter email={email} onSettings={onSettings} onTrustCenter={onTrustCenter} />
+        <SidebarFooter email={email} onSettings={onSettings} onSandboxes={onSandboxes} />
       </aside>
     </>
   );

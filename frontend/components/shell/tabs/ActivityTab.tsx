@@ -44,7 +44,7 @@ export default function ActivitySection() {
     <div>
       <p className="text-sm text-ink">Append-only audit trail. Evidence bundles download as JSON (sealed blobs decrypt with <span className="font-mono">wayfind evidence --decrypt</span> or the history view).</p>
       <div className="mt-4 flex gap-2">
-        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by conversation id…" className="w-80 rounded-lg border border-navy/15 px-3 py-2 text-sm text-navy" />
+        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by sandbox id…" className="w-80 rounded-lg border border-navy/15 px-3 py-2 text-sm text-navy" />
         <button onClick={refresh} disabled={busy} className="rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover disabled:opacity-50">Refresh</button>
       </div>
       <Err message={error} />

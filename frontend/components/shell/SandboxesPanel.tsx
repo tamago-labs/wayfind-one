@@ -10,17 +10,17 @@ import NewSection from './tabs/NewTab';
 import SettingsSection from './tabs/SettingsTab';
 import VerifySection from './tabs/VerifyTab';
 
-type Section = 'new' | 'bots' | 'conversations' | 'verify' | 'activity' | 'settings';
+type Section = 'new' | 'bots' | 'sandboxes' | 'verify' | 'activity' | 'settings';
 
-export type TrustSection = Section;
+export type SandboxSection = Section;
 
-const SECTIONS: Section[] = ['new', 'bots', 'conversations', 'verify', 'activity', 'settings'];
+const SECTIONS: Section[] = ['new', 'bots', 'sandboxes', 'verify', 'activity', 'settings'];
 
 /**
- * Trust center slide-in panel (GA-style right drawer).
+ * Sandboxes slide-in panel (GA-style right drawer).
  * Hosts every former sidebar tab as a section.
  */
-export default function TrustCenterPanel({
+export default function SandboxesPanel({
   open,
   onClose,
   onCreated,
@@ -64,7 +64,7 @@ export default function TrustCenterPanel({
           <motion.aside
             role="dialog"
             aria-modal="true"
-            aria-label="Trust center"
+            aria-label="Sandboxes"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -76,12 +76,12 @@ export default function TrustCenterPanel({
                 <ShieldCheck className="h-5 w-5" strokeWidth={2.2} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block font-brico text-lg font-bold text-navy">Trust center</span>
-                <span className="block text-xs text-ink">Conversations, receipts, attestations, and the audit trail.</span>
+                <span className="block font-brico text-lg font-bold text-navy">Sandboxes</span>
+                <span className="block text-xs text-ink">Sandboxes, receipts, attestations, and the audit trail.</span>
               </span>
               <button
                 onClick={onClose}
-                aria-label="Close trust center"
+                aria-label="Close Sandboxes"
                 className="grid h-9 w-9 place-items-center rounded-full text-ink hover:bg-mist hover:text-navy"
               >
                 <X className="h-5 w-5" strokeWidth={2.2} />
@@ -103,7 +103,7 @@ export default function TrustCenterPanel({
             <div className="flex-1 overflow-y-auto p-6">
               {section === 'new' && <NewSection onCreated={onCreated} />}
               {section === 'bots' && <BotsSection onCreated={onCreated} />}
-              {section === 'conversations' && <ConversationsSection openRequest={openRequest} />}
+              {section === 'sandboxes' && <ConversationsSection openRequest={openRequest} />}
               {section === 'verify' && <VerifySection />}
               {section === 'activity' && <ActivitySection />}
               {section === 'settings' && <SettingsSection />}
