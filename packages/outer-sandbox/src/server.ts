@@ -523,6 +523,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (!bot || bot.status !== 'active') {
         return void json(res, 404, { error: 'unknown or paused bot' });
       }
+      // Hello runs are exactly-once per bot, ever: a thread that already
+      // has history was greeted before (reloads race the history fetch
+      // client-side). Tell the caller to just re-read history.
+      if (body.hello === true && readHistory(bot.id).entries.length > 0) {
+        return void json(res, 200, { runId: null, greeted: true });
+      }
       if (typeof body.apiUrl === 'string' && body.apiUrl) process.env.WAYFIND_API_URL = body.apiUrl;
       const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}`;
       const isChief = bot.isChiefOfStaff === true;

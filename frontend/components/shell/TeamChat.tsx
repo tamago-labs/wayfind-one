@@ -139,6 +139,10 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   const [questions, setQuestions] = useState<ParkedQuestion[]>([]);
   const [approvals, setApprovals] = useState<ParkedApproval[]>([]);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // History for the selected bot has loaded at least once — the hello
+  // effect must wait for this, otherwise it fires into the pre-load
+  // empty thread on every reload and greets again.
+  const [historyReady, setHistoryReady] = useState(false);
   // Live reply text, accumulated from chunk deltas (cloud parity: the reply
   // renders token-by-token while polling, not all-at-once at done).
   const [liveText, setLiveText] = useState('');
@@ -157,6 +161,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       if (/404|no provisioned|not found/i.test(msg)) setOuterMissing(true);
       else setError('Could not load this thread — try again.');
     }
+    setHistoryReady(true);
   }, []);
 
   useEffect(() => {
@@ -168,6 +173,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       setQuestions([]);
       setApprovals([]);
       setVoiceOpen(false);
+      setHistoryReady(false);
       loadHistory(bot.id);
     }
   }, [bot, loadHistory]);
@@ -183,8 +189,20 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     setLiveText('');
     onBusy(bot.id);
     setError(null);
+    // Optimistic user bubble (cloud parity): the message shows instantly
+    // with the typing indicator; history reload after done replaces it
+    // with the server copy. Hellos skip this — the prompt must never render.
+    if (!opts?.hello) {
+      const optimistic = text.trim();
+      setEntries((prev) => [...prev, { seq: -Date.now(), role: 'user' as const, content: optimistic }]);
+    }
     try {
       const { runId } = await teamChat(bot.id, text.trim(), undefined, opts?.hello);
+      if (!runId) {
+        // Server says this bot was already greeted — just show its history.
+        await loadHistory(bot.id);
+        return;
+      }
       setDraft('');
       await waitForRun(runId, {
         onChunk: (delta) => setLiveText((prev) => prev + delta),
@@ -230,10 +248,11 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   }
 
   // Bot-initiated hello: one model run, fired when the thread is
-  // known-empty. Module-level set survives StrictMode remounts, so the
-  // greeting fires exactly once per bot per session.
+  // known-empty. Module-level set survives StrictMode remounts, the
+  // historyReady gate survives reloads (history arrives before any hello
+  // is considered), and the server refuses second hellos regardless.
   useEffect(() => {
-    if (!bot || disabled || busy || entries.length > 0 || greetedBots.has(bot.id)) return;
+    if (!bot || disabled || busy || !historyReady || entries.length > 0 || greetedBots.has(bot.id)) return;
     greetedBots.add(bot.id);
     void sendText(
       bot.role
