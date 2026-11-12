@@ -33,6 +33,18 @@ export async function computerAction(action: 'suspend' | 'resume' | 'terminate',
   return apiFetch('/computer/action', { method: 'POST', body: { action, ...(kind ? { kind } : {}) } });
 }
 
+/**
+ * Safe reboot onto the current golden image: suspend flushes the workspace
+ * (team + skills + MCP registry) to S3 first — terminate alone would drop
+ * unsynced changes — then terminate drops the stale VM. Caller reloads so
+ * ensure() provisions fresh. Throws on failure; suspend errors propagate
+ * so the caller can ask before terminating anyway.
+ */
+export async function restartOuterComputer(): Promise<void> {
+  await computerAction('suspend', 'one_outer');
+  await computerAction('terminate', 'one_outer');
+}
+
 const POLL_MS = 3000;
 const MAX_WAIT_MS = 5 * 60_000;
 

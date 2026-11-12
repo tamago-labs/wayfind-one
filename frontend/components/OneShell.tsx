@@ -6,6 +6,7 @@ import Sidebar from './shell/Sidebar';
 import TeamChat from './shell/TeamChat';
 import BotPanel from './shell/BotPanel';
 import NewBotModal from './shell/NewBotModal';
+import SettingsModal from './shell/settings/SettingsModal';
 import TrustCenterPanel, { type TrustSection } from './shell/TrustCenterPanel';
 import { BootPhase, ComputerRow, ensureComputer } from '@/lib/computer';
 import { BotEdits, TeamBot, deleteTeamBot, listTeamBots, saveTeamBot } from '@/lib/team';
@@ -26,6 +27,7 @@ export default function OneShell({ email }: { email?: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const boot = useCallback(async () => {
     setBootError(null);
@@ -153,7 +155,10 @@ export default function OneShell({ email }: { email?: string }) {
         email={email}
         open={navOpen}
         onClose={() => setNavOpen(false)}
-        onSettings={() => openTrust('settings')}
+        onSettings={() => {
+          setNavOpen(false);
+          setSettingsOpen(true);
+        }}
         onTrustCenter={() => openTrust('verify')}
         bots={bots ?? []}
         selectedId={selectedId}
@@ -230,6 +235,7 @@ export default function OneShell({ email }: { email?: string }) {
         chiefTakenBy={chiefTakenBy}
       />
       <BotPanel open={panelOpen} onClose={() => setPanelOpen(false)} bot={selected} onSave={saveBotEdits} onDelete={deleteBot} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <TrustCenterPanel open={trustOpen} onClose={() => setTrustOpen(false)} onCreated={handleCreated} initialSection={trustSection} openRequest={openRequest} />
     </div>
   );

@@ -109,6 +109,122 @@ export async function transcribeVoice(wav: Blob): Promise<{ transcript: string; 
     body: wav,
   });
 }
+
+// ---- Computer settings (cloud SettingsModal parity, outer-VM backed) ----
+
+export interface InstalledSkill {
+  name: string;
+  description: string;
+  source: string;
+  files: number;
+}
+
+/** Installed skill catalog for the Settings list. */
+export async function getSkills(): Promise<InstalledSkill[]> {
+  const out = await teamFetch<{ skills: InstalledSkill[] }>('/skills');
+  return out.skills ?? [];
+}
+
+/** Remove an installed skill. Returns false when unknown. */
+export async function removeSkill(name: string): Promise<boolean> {
+  try {
+    await teamFetch(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface McpServer {
+  name: string;
+  type: 'stdio' | 'remote';
+  isActive: boolean;
+  /** Env/header key names only — values never leave the computer. */
+  configKeys: string[];
+  disabledTools: string[];
+  /** Live state: unknown = never connected since boot. */
+  status: 'connected' | 'error' | 'unknown';
+  tools: number;
+  lastError?: string;
+}
+
+export interface McpServerInput {
+  command?: string[];
+  args?: string[];
+  env?: Record<string, string>;
+  environment?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  isActive?: boolean;
+  disabledTools?: string[];
+}
+
+/** Global MCP registry for the Settings list. */
+export async function getMcpServers(): Promise<McpServer[]> {
+  const out = await teamFetch<{ servers: McpServer[] }>('/mcp');
+  return out.servers ?? [];
+}
+
+/** Add a server. Throws with the validation message on conflict. */
+export async function saveMcpServer(name: string, cfg: McpServerInput): Promise<McpServer[]> {
+  const out = await teamFetch<{ servers?: McpServer[]; error?: string }>('/mcp', { method: 'POST', body: { name, ...cfg } });
+  if (out.error) throw new Error(out.error);
+  return out.servers ?? [];
+}
+
+/** Partial update: toggle active, edit env/headers, disable tools. */
+export async function patchMcpServer(name: string, cfg: McpServerInput): Promise<McpServer[]> {
+  const out = await teamFetch<{ servers?: McpServer[]; error?: string }>(`/mcp/${encodeURIComponent(name)}`, { method: 'PUT', body: cfg });
+  if (out.error) throw new Error(out.error);
+  return out.servers ?? [];
+}
+
+/** Remove a server. Returns false when unknown. */
+export async function removeMcpServer(name: string): Promise<boolean> {
+  try {
+    await teamFetch(`/mcp/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Force-reconnect a server. Throws with the server's error message on failure. */
+export async function restartMcpServer(name: string): Promise<McpServer[]> {
+  const out = await teamFetch<{ servers?: McpServer[]; error?: string }>(`/mcp/${encodeURIComponent(name)}/restart`, { method: 'POST' });
+  if (out.error) throw new Error(out.error);
+  return out.servers ?? [];
+}
+
+export interface PermissionRule {
+  permission: string;
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+}
+
+export async function getPermissions(): Promise<{ rules: PermissionRule[]; canUndo: boolean }> {
+  return teamFetch('/permissions');
+}
+
+export async function setPermissions(rules: PermissionRule[]): Promise<PermissionRule[]> {
+  const out = await teamFetch<{ rules: PermissionRule[] }>('/permissions', { method: 'PUT', body: { rules } });
+  return out.rules ?? [];
+}
+
+/** Restore permissions to before the last save. Returns null when nothing to undo. */
+export async function undoPermissions(): Promise<{ rules: PermissionRule[]; canUndo: boolean } | null> {
+  try {
+    return await teamFetch('/permissions/undo', { method: 'POST' });
+  } catch (e) {
+    if (/404|nothing to undo/i.test(e instanceof Error ? e.message : String(e))) return null;
+    throw e;
+  }
+}
+
+/** Outer VM readiness probe (ok/initialized/identity) for the Computer tab. */
+export async function outerReady(): Promise<{ ok: boolean; initialized: boolean }> {
+  return teamFetch('/ready');
+}
 /** Compress a user's first message into a short role label (no tools). */
 export async function summarizeRole(text: string): Promise<string | null> {
   try {

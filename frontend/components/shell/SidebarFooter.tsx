@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { LogOut, Pencil, RotateCcw, Settings, ShieldCheck } from 'lucide-react';
 import { getCurrentUser, signOut } from 'aws-amplify/auth';
-import { computerAction } from '@/lib/computer';
+import { restartOuterComputer, computerAction } from '@/lib/computer';
 import { getMyProfile } from '@/lib/data';
 import ProfileModal from './ProfileModal';
 
@@ -83,18 +83,20 @@ export default function SidebarFooter({ email, onSettings, onTrustCenter }: { em
     setRestarting(true);
     try {
       try {
-        await computerAction('suspend', 'one_outer');
-      } catch {
+        await restartOuterComputer();
+      } catch (e) {
+        // Suspend failed (VM unreachable?) — the flush may not have
+        // happened. Terminate directly only with explicit consent.
         if (
           !window.confirm(
-            'Could not save the workspace first (computer unreachable). Terminate anyway? Unsaved changes may be lost.',
+            `Could not save the workspace first (${e instanceof Error ? e.message : String(e)}). Terminate anyway? Unsaved changes may be lost.`,
           )
         ) {
           setRestarting(false);
           return;
         }
+        await computerAction('terminate', 'one_outer');
       }
-      await computerAction('terminate', 'one_outer');
       window.location.reload();
     } catch (e) {
       window.alert(`Restart failed: ${e instanceof Error ? e.message : String(e)}`);
