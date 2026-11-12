@@ -4,3 +4,4 @@ dist/
 *.log
 workspace/.wayfind/
 workspace/conversations.jsonl
+workspace/team/

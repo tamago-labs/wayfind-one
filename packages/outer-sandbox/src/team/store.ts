@@ -329,3 +329,15 @@ export function readHistory(botId: string): { entries: HistoryEntry[]; verified:
   }
   return { entries, verified: true };
 }
+
+/** Recent thread history as plain text for the per-turn system brief.
+ * Sessions are in-RAM (lost on restart) and the SDK seed shape is
+ * Responses-specific (dropped by the Modal chat provider), so the file
+ * history is replayed as text the model always sees. Empty when fresh. */
+export function threadHistoryBlock(botId: string, limit = 10): string {
+  const { entries } = readHistory(botId);
+  const recent = entries.slice(-limit);
+  if (recent.length === 0) return '';
+  const lines = recent.map((e) => `${e.role}: ${e.content}`);
+  return `\n\n[thread history — earlier in this conversation, stay consistent with it]\n${lines.join('\n')}\n[end history]`;
+}

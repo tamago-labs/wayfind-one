@@ -18,7 +18,7 @@ import { reportUsage } from './runs/usage.js';
 import { listInstalledSkills, removeSkill, resolveSkillSource, saveSkillPreview, scanLocalSkills, validateSkillPreview } from './agent/skills.js';
 import { listMcpServers, patchMcpServer, removeMcpServer, restartMcpServer, saveMcpServer } from './agent/mcp.js';
 import { transcribeWav, VoiceError } from './voice/transcribe.js';
-import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listTeamBots, readHistory, saveTeamBot, saveTeamConfig, toRosterEntry, verifyTeamManifest } from './team/store.js';
+import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listTeamBots, readHistory, saveTeamBot, saveTeamConfig, threadHistoryBlock, toRosterEntry, verifyTeamManifest } from './team/store.js';
 
 /** Browser origin for local dev (Amplify dev server). Loosen only for local. */
 const CORS_ORIGIN = process.env.AGENT_CORS_ORIGIN ?? '*';
@@ -530,7 +530,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         return void json(res, 200, { runId: null, greeted: true });
       }
       if (typeof body.apiUrl === 'string' && body.apiUrl) process.env.WAYFIND_API_URL = body.apiUrl;
-      const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}`;
+      const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}${threadHistoryBlock(bot.id)}`;
       const isChief = bot.isChiefOfStaff === true;
       const all = listTeamBots().slice(0, 50);
       const chief = all.find((b) => b.isChiefOfStaff && b.status !== 'paused');

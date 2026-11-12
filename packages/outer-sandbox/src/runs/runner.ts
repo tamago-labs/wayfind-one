@@ -18,7 +18,7 @@ import { createTriageAgent, type AgentSelection, type TeamChannel } from '../age
 import type { QuestionPrompt } from '../agent/tools/question.js';
 import type { BotRequest, BotRequestResult } from '../agent/tools/create_bot.js';
 import type { MessageRunner, RosterEntry } from '../agent/tools/message_bot.js';
-import { appendHistory, saveTeamBot } from '../team/store.js';
+import { appendHistory, saveTeamBot, threadHistoryBlock } from '../team/store.js';
 import type { ChildRequest, ChildResult } from '../agent/tools/task.js';
 import { clearRunLog, grantForRun, runWithContext, toolCallCount, type GuardOpts } from '../core/guard.js';
 import { readMcpConfig } from '../agent/mcp.js';
@@ -751,13 +751,16 @@ function makeMessageRunner(runState: Run): MessageRunner {
     }
     const sender = runState.botName?.trim() || 'Chief';
     const system = target.role
-      ? `You are "${target.name}". Role: ${target.role}.`
-      : `You are "${target.name}". Your role is not defined yet.`;
+      ? `You are "${target.name}". Role: ${target.role}.${threadHistoryBlock(target.id)}`
+      : `You are "${target.name}". Your role is not defined yet.${threadHistoryBlock(target.id)}`;
     runState.events.push({ type: 'agent', agent: `Messaged @${target.name}` });
     appendTranscript(runState.id, 'tool', `Messaged @${target.name}`, runState.parentId, runState.conversationId);
     try {
+      // Same conversation as the target's own thread (cloud: each Bot id
+      // is its conversation; ONE prefixes team/ — align here so delegated
+      // turns share the bot's session instead of starting blind).
       const { output } = await runToCompletion(`[via ${sender}] ${message}`, {
-        conversationId: target.id,
+        conversationId: `team/${target.id}`,
         system,
         allowedSkills: target.skills ?? undefined,
         allowedMcp: target.mcp ?? undefined,
@@ -768,6 +771,15 @@ function makeMessageRunner(runState: Run): MessageRunner {
         apiUrl: runState.apiUrl,
         idToken: runState.idToken,
       });
+      // Mirror the exchange into the target's file history so its thread
+      // shows the consult when the user switches bots (ONE reads files;
+      // cloud renders the shared transcript). Chain stays verified.
+      try {
+        appendHistory(target.id, 'user', `[via ${sender}] ${message}`);
+        appendHistory(target.id, 'assistant', output);
+      } catch (err) {
+        console.error('[team-history] delegate dual-write failed:', err instanceof Error ? err.message : err);
+      }
       runState.events.push({ type: 'agent', agent: `@${target.name} replied` });
       appendTranscript(runState.id, 'tool', `@${target.name} replied`, runState.parentId, runState.conversationId);
       return output;
