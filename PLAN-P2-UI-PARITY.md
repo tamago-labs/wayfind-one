@@ -1,5 +1,26 @@
 # UI parity plan — ONE shell mirrors cloud Roster + Thread + Composer
 
+## Build status 2026-11-12: A–C SHIPPED, D mostly shipped (code surveyed)
+
+- A: `TeamBotSchema` has `shape` + `isChiefOfStaff` + 7 Mascot colors;
+  one-chief enforcement server-side (`store.ts:179-182`); free combo
+  auto-assign — verify the exact 7×4-minus-used rule on next touch.
+- B: `shell/NewBotModal.tsx` exists (name-pool, chief checkbox, warning on
+  replace); `Mascot` blink — verify prop exists.
+- C: `shell/TeamRoster.tsx` in `Sidebar`, state lifted to `OneShell`,
+  `TeamChat` thread-only — done.
+- D: `TeamChat` + `Markdown.tsx` + approvals/parked cards + suggestions —
+  substantially done; verify bubble classes/typing/composer-spinner match
+  this spec on next touch.
+- Stale ref fixed: header gear opens **Sandboxes** settings (renamed from
+  Trust Center), not "TrustCenter".
+- Still out (unchanged): bot edit post-create, bot delete, attachments,
+  voice is IN (transcribe exists — spec line overstated), skills/MCP
+  pickers exist server-side but no composer picker, @mentions exist.
+
+Steps below kept as the build record; re-run the acceptance lists as
+regression checks, not build tasks.
+
 Problem: TeamChat grew its own roster sidebar, bot creation is a bare
 name/role form (no chief, no color/shape), and the thread looks nothing
 like cloud's. Fix: the main sidebar owns the roster (cloud `Roster`
@@ -66,8 +87,9 @@ no second sidebar anywhere.
 2. Empty thread: greeting + suggestion cards (port cloud
    `CHIEF_SUGGESTION` / `MEMBER_SUGGESTION` + generic three; tap sends).
    Suggestions vanish after the first user message.
-3. Header: name + role + `observed` badge + gear opening TrustCenter
-   settings (ONE's equivalent of cloud's bot-settings panel).
+3. Header: name + role + `observed` badge + gear opening Sandboxes
+   settings (renamed from Trust Center; ONE's equivalent of cloud's
+   bot-settings panel).
 4. Composer: keep input + send; send button shows spinner while busy;
    placeholder shows `disabledHint` when gated. Attachments, voice,
    skills/MCP pickers, @mentions: explicitly out (no backend for them).

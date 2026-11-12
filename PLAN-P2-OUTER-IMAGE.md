@@ -1,5 +1,20 @@
 # PLAN-P2 outer image — `packages/outer-agent`
 
+## Build status 2026-11-12: SHIPPED as `packages/outer-sandbox` (note the
+name — the package is `outer-sandbox`, not `outer-agent`)
+
+Surveyed: the fork exists with the @openai/agents loop, team store
+(`team/bots|history|config|manifest.json`, one-chief enforcement),
+sync with `.wayfind/` skipped both directions, `providers.json` pinned to
+`meta-models/Muse-Spark-Open-816B-A42B`, full server surface (team, chat,
+approvals/questions, voice, skills, MCP, permissions, usage), and the
+`scripts/outer-image/` pipeline through terminate (image v1.0 `wayfind-outer`
+published). Deltas 1 (injection kept — matches as-built), 2, 4, 6 are done.
+Delta 3 (escalation stub): NOT built, moved to P2-Phase 2. Delta 5 (strip
+audit): UNVERIFIED — go tool-by-tool before public use. Delta 7 tests:
+`outer-tests/` suite not found — verify or build. Steps below kept as the
+build record.
+
 Ancestor: wayfind-cloud `packages/computer` (agent loop + HTTP/SSE server,
 one computer per account, zero-keys image, `/hooks/*` lifecycle, golden
 image pipeline, black-box tests). The disposable `packages/sandbox` is the

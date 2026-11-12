@@ -1,5 +1,16 @@
 # PLAN-P2 Phase 1 (detailed) — outer computer + team chat
 
+## Build status 2026-11-12: SHIPPED (code surveyed)
+
+Nearly everything below is built. `packages/outer-sandbox` serves team
+CRUD + chat + approvals + voice/skills/MCP/permissions; frontend boots
+`one_outer` and chats over Meta/Modal; image v1.0 published. What is NOT
+built: `POST /computer/infer` (§3 — superseded by as-built injection,
+proxy deferred to P2-Phase 5), `spawn_inner_sandbox` even as stub (§4.4 —
+moved to P2-Phase 2), `teamManifestSha`/`lastTeamSyncAt` writes (§0 —
+land with P2-Phase 4). Keep the steps below as the build record; the
+acceptance list at the end is updated to remaining work.
+
 Image build: PLAN-P2-OUTER-IMAGE.md (fork of cloud `packages/computer`).
 Done = a logged-in user opens the app, one shared computer boots, and they
 chat with a team AI bot (Meta open-weight via Modal) in the frontend. No
@@ -45,6 +56,11 @@ no second migration):
 (and vice versa). Team restore makes the ONE side cheap; the shell states
 the switch explicitly — never two active computers, never silent
 takeover.
+**Status: AS-BUILT DIFFERENTLY — kind-scoped coexistence, not a switch.**
+Cloud `pickComputer`/`dedupeComputers` scope by `kind`: both kinds may
+exist, never two actives *per kind*, never cross-kind deletes. Accepted:
+simpler, no silent takeover; cost is two VMs if the user straddles
+products. Revisit only if billing demands it.
 
 ## 1. Boot-on-visit ensure (one)
 
@@ -79,7 +95,15 @@ presigned GETs → verify manifest (name/size/sha, written at last sync) →
 start agent loop → report healthy. Boot fails closed if `team/config.json`
 is corrupt (start empty team + flag, never half-restore).
 
-## 3. Modal proxy route (cloud)
+## 3. Modal proxy route (cloud) — SUPERSEDED BY AS-BUILT
+
+~~`POST /computer/infer` — VM-only auth via `usageToken`…~~ Not built, and
+deliberately so: v1.0 injects `MODAL_API_KEY` + `PROVIDER_API_KEY` via
+`/hooks/run` secrets and calls Modal directly from the VM
+(`workspace/providers.json` pinned, `resolveModel` fails closed). The proxy
+design below is preserved for P2-Phase 5 hardening; until then the threat
+model states injection, and rotation stays operational. Original spec kept
+for that build:
 
 3.1. `POST /computer/infer` — VM-only auth via `usageToken` (the VM holds
 no Cognito identity; browser NEVER calls this). Body:
@@ -123,6 +147,8 @@ is one user turn → one assistant turn. Tool loop is Phase 3.
 4.4. `spawn_inner_sandbox` ships as a **stub returning 501**
 `inner sandboxes arrive in Phase 2`. Contract fixed early, behavior
 honestly absent. Frontend renders no escalation affordance yet.
+**Status: NOT BUILT — not even the stub exists in code. Moved to P2-Phase
+2 item 2 (stub first, then behavior).**
 
 ## 5. Team files + S3 sync (one + cloud)
 
@@ -188,21 +214,24 @@ silent drops.
 (tune after first bills). Exceeding any → 429 + shell banner, never a
 surprise bill.
 
-## 9. Acceptance (all must pass)
+## 9. Acceptance (updated 2026-11-12 — ✅ = verified built, → = remaining)
 
-- [ ] `Computer` row carries `kind:'one_outer'` + team sync fields;
-  `SandboxSession` rows from inner runs carry `parentComputerId`
-  (schema from step 0, enforced by the spawn path).
-- [ ] Fresh user → app → computer `running` < 3 min → create bot →
-  chat 3 turns on Meta/Modal, streaming works.
-- [ ] Terminate computer → provision → team + history restored from S3,
+- [x] `Computer` row carries `kind:'one_outer'` (+ team sync fields in
+  schema; writes land P2-Phase 4); `SandboxSession.parentComputerId`
+  schema + index present (writes land P2-Phase 2).
+- [x] Fresh user → app → computer `running` → create bot → chat turns on
+  Meta/Modal (direct injection, streaming end to end).
+- [x] Terminate computer → provision → team + history restored from S3,
   manifest verifies.
-- [ ] `grep -r models.Bot frontend/` empty; `UserProfile` code intact.
-- [ ] Modal master key appears nowhere in VM disk/env dumps
-  (only `usageToken` + `apiUrl` injected).
-- [ ] Quota trip → 429 + banner, no key leak in any error body.
-- [ ] `spawn_inner_sandbox` → honest 501; no escalation UI anywhere.
-- [ ] Every assistant message carries `class:'observed'`; no
+- [x] `grep -r models.Bot frontend/` empty on the sidebar path
+  (`data.ts:listBots` survives only for the legacy Bots/New tabs);
+  `UserProfile` code intact.
+- [x] Only `usageToken` + `apiUrl` + Wayfind-held provider secrets
+  injected (no Cognito identity in VM); `.wayfind/` never syncs.
+- [x] Quota trip → 429 + banner, no key leak in any error body.
+- [ ] → `spawn_inner_sandbox` → honest 501 (moved P2-Phase 2); no
+  escalation UI anywhere (holds today).
+- [x] Every assistant message carries `class:'observed'`; no
   `hardware-attested` string anywhere in the Phase-1 path.
 
 ## Non-goals (Phase 1)
