@@ -71,10 +71,14 @@ Locked inputs (2026-11-12):
 - **Escalation:** the outer sub-agent spawning an inner sandbox. Always
   logged; the log entry is evidence.
 
-## Phase 1 — outer computer for ONE — ✅ BUILT (see Reality check)
+## Phase 1 — outer computer for ONE — ✅ BUILT, SKIP IN EXECUTION
 
 Goal: visiting the app boots (or resumes) exactly one shared computer that
 understands the new flow. Sidebar team list comes from files, not the DB.
+
+Execution: SKIP — nothing to build here. The remaining items (PIVOT edits,
+strip audit, outer-tests, rotation doc) are parallel doc/test tasks, not a
+build phase. Start execution at Phase 2.
 
 Status: shipped. `packages/outer-sandbox` (fork of cloud `packages/computer`)
 serves `GET /team/bots|history|config`, `POST /team/bots|chat`, approvals/
@@ -154,12 +158,27 @@ inner loop, then the service routes.
    policy })` lands in the outer image returning honest 501 with the fixed
    contract, so the tool surface exists before behavior does. (PHASE1 §4.4
    specified this; it was never built — build it here.)
-3. **Inner agent-loop (the "delegate until finished" requirement).**
-   `packages/sandbox` gains a bounded loop: prompt → tools → repeat until
+3. **Orchestration pattern (locked): agents-as-tools, NOT sub-agents.**
+   Per the OpenAI agents orchestration guide: the outer bot is the manager
+   and stays responsible for the final answer; `spawn_inner_sandbox` is a
+   bounded tool call, not a handoff — control never transfers to the inner
+   sandbox (it owns no conversation, has no escalation tool, cap at 2).
+   Policy isolation is the reason the inner run is a separate agent at
+   all; everywhere else, prefer direct tools over sub-agent fan-out
+   (latency: a spawned agent round-trip costs seconds per hop with no
+   isolation benefit inside a single trust domain). Concretely: no `task`
+   fan-out on the escalation path, no sub-agents inside the inner
+   sandbox — single agent + tool loop only. (Whether the outer keeps its
+   existing `task` fan-out for parallel non-sensitive work: open question,
+   see review questions.)
+4. **Inner agent-loop (the "delegate until finished" requirement).**
+   `packages/   sandbox` gains a bounded loop: prompt → tools → repeat until
    done/failed/budget. Bounds: max N tool steps, read-mostly tool
    allowlist, per-iteration response-signature verification against the
    session preflight, kill + partial-evidence receipt on budget exceed.
-   Without this, escalation returns one-shot answers, not finished tasks.
+   Single agent with tools — no sub-agent fan-out inside (see orchestration
+   pattern above). Without this, escalation returns one-shot answers, not
+   finished tasks.
 2. **Near-AI-only policy, fail closed.** Inner image = today's sandbox
    image (bot runner + `/ai` + preflight + sealed checkpoints) with the
    provider allowlist pinned to `near-ai`. Anything else → 501. Attestation
@@ -208,10 +227,14 @@ policy, bind the briefing.
    workspace reads of sealed inputs (they don't exist there by
    construction, Phase 2.3).
 2. **Escalation tool.** `spawn_inner_sandbox({ goal, fileRefs, policy })`
-   — the outer names files by sealed reference; the control plane moves
-   bytes computer→inner without outer ever decrypting. Every call emits an
-   audit entry `{ when, who, goal-hash, sandboxId, policy }`. Nesting caps
-   at 2: an inner sandbox has no escalation tool — the call fails closed.
+   — a **blocking tool call with progress events** (manager waits; progress
+   streams over the existing run-events channel; timeout kills the inner
+   run and returns partial evidence — never fire-and-forget, never a
+   handoff). The outer names files by sealed reference; the control plane
+   moves bytes computer→inner without outer ever decrypting. Every call
+   emits an audit entry `{ when, who, goal-hash, sandboxId, policy }`.
+   Nesting caps at 2: an inner sandbox has no escalation tool — the call
+   fails closed.
 3. **Escalation policy (per team, `team/config.json`).** Modes:
    `manual` (user picks per task — reuse the inherited approvals UI for
    the confirm-before-spawn dialog, don't build new UI), `auto-logged`
