@@ -1,13 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import Sidebar from './shell/Sidebar';
 import TeamChat from './shell/TeamChat';
+import BotPanel from './shell/BotPanel';
+import NewBotModal from './shell/NewBotModal';
 import TrustCenterPanel, { type TrustSection } from './shell/TrustCenterPanel';
 import { BootPhase, ComputerRow, ensureComputer } from '@/lib/computer';
+import { BotEdits, TeamBot, deleteTeamBot, listTeamBots, saveTeamBot } from '@/lib/team';
 
-/** App shell — readiness gate + floating boot banner (cloud pattern). */
+/** App shell — ensure one outer computer, then team chat. */
 export default function OneShell({ email }: { email?: string }) {
   const [openRequest, setOpenRequest] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -16,6 +19,13 @@ export default function OneShell({ email }: { email?: string }) {
   const [phase, setPhase] = useState<BootPhase>('checking');
   const [, setComputer] = useState<ComputerRow | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
+
+  const [bots, setBots] = useState<TeamBot[] | null>(null);
+  const [botsError, setBotsError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const boot = useCallback(async () => {
     setBootError(null);
@@ -36,20 +46,100 @@ export default function OneShell({ email }: { email?: string }) {
     boot();
   }, [boot]);
 
+  const ready = phase === 'running' || phase === 'suspended';
+
+  const loadBots = useCallback(async (select?: string) => {
+    try {
+      const list = await listTeamBots();
+      setBots(list);
+      setBotsError(null);
+      const active = list.filter((b) => b.status !== 'paused');
+      const pick = (select && list.find((b) => b.id === select)) ?? active[0] ?? null;
+      setSelectedId((cur) => (cur && list.some((b) => b.id === cur) ? cur : (pick ? pick.id : null)));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[team] roster load failed:', msg);
+      if (/404|no provisioned|not found/i.test(msg)) {
+        setBots([]);
+      } else {
+        setBotsError('Could not load your team — try again.');
+      }
+    }
+  }, []);
+
+  // Roster loads once the computer is running; retry net covers a missed update.
+  useEffect(() => {
+    if (!ready || bots !== null || botsError) return;
+    let cancelled = false;
+    void loadBots();
+    const timer = setInterval(() => {
+      if (!cancelled) void loadBots();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [ready, bots, botsError, loadBots]);
+
+  const createBot = useCallback(
+    async (name: string, isChief: boolean): Promise<string | null> => {
+      try {
+        const bot = await saveTeamBot({
+          name,
+          ...(isChief ? { role: 'Chief of staff', isChiefOfStaff: true } : {}),
+        });
+        await loadBots(bot.id);
+        setModalOpen(false);
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    },
+    [loadBots],
+  );
+
   const openTrust = (s: TrustSection) => {
     setTrustSection(s);
     setNavOpen(false);
     setTrustOpen(true);
   };
 
+  const saveBotEdits = useCallback(
+    async (id: string, edits: BotEdits): Promise<string | null> => {
+      try {
+        await saveTeamBot({ id, ...edits });
+        await loadBots(id);
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    },
+    [loadBots],
+  );
+
+  const deleteBot = useCallback(
+    async (id: string): Promise<string | null> => {
+      try {
+        await deleteTeamBot(id);
+        setSelectedId((cur) => (cur === id ? null : cur));
+        setPanelOpen(false);
+        await loadBots();
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    },
+    [loadBots],
+  );
+
   const handleCreated = (id: string) => {
     setOpenRequest(id);
     openTrust('conversations');
   };
 
-  // Suspended counts as ready — the VM wakes on first traffic, so gating
-  // it would brick the wake (same rule as cloud's AppShell gate).
-  const ready = phase === 'running' || phase === 'suspended';
+  const selected = bots?.find((b) => b.id === selectedId) ?? null;
+  const chiefTakenBy = bots?.find((b) => b.isChiefOfStaff)?.name ?? null;
+
   const bootHint = bootError
     ? `Couldn't start your computer — ${bootError}`
     : phase === 'provisioning'
@@ -64,6 +154,12 @@ export default function OneShell({ email }: { email?: string }) {
         onClose={() => setNavOpen(false)}
         onSettings={() => openTrust('settings')}
         onTrustCenter={() => openTrust('verify')}
+        bots={bots ?? []}
+        selectedId={selectedId}
+        busyId={busyId}
+        rosterReady={ready && bots !== null}
+        onSelectBot={setSelectedId}
+        onNewBot={() => setModalOpen(true)}
       />
       <main className="flex flex-1 flex-col p-8">
         <div className="mb-4 md:hidden">
@@ -86,16 +182,38 @@ export default function OneShell({ email }: { email?: string }) {
                 </button>
               </>
             ) : (
-              <>
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                {bootHint}
-              </>
+              bootHint
             )}
           </div>
         )}
 
-        <TeamChat disabled={!ready} disabledHint={bootHint} ready={ready} />
+        {botsError ? (
+          <div className="grid flex-1 place-items-center rounded-2xl border border-dashed border-navy/15 bg-white/60 p-10 text-center">
+            <div>
+              <p className="font-brico text-lg font-bold text-navy">{botsError}</p>
+              <button
+                onClick={() => {
+                  setBots(null);
+                  setBotsError(null);
+                }}
+                className="mt-4 rounded-full bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy/90"
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        ) : (
+          <TeamChat bot={selected} disabled={!ready} disabledHint={bootHint} onBusy={setBusyId} onNeedBots={() => setModalOpen(true)} onOpenSettings={() => setPanelOpen(true)} />
+        )}
       </main>
+      <NewBotModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onCreate={createBot}
+        taken={(bots ?? []).map((b) => b.name)}
+        chiefTakenBy={chiefTakenBy}
+      />
+      <BotPanel open={panelOpen} onClose={() => setPanelOpen(false)} bot={selected} onSave={saveBotEdits} onDelete={deleteBot} />
       <TrustCenterPanel open={trustOpen} onClose={() => setTrustOpen(false)} onCreated={handleCreated} initialSection={trustSection} openRequest={openRequest} />
     </div>
   );

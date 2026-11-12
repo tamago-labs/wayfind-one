@@ -28,12 +28,17 @@ async function teamFetch<T>(path: string, init?: { method?: string; body?: unkno
   });
 }
 
+export type BotColor = 'amber' | 'moss' | 'lagoon' | 'ash' | 'blue' | 'coral' | 'grape';
+export type BotShape = 'blob' | 'circle' | 'squircle' | 'pebble';
+
 export interface TeamBot {
   id: string;
   name: string;
   role?: string | null;
   description?: string | null;
-  color?: string | null;
+  color?: BotColor | null;
+  shape?: BotShape | null;
+  isChiefOfStaff?: boolean | null;
   status?: string | null;
   model?: string | null;
 }
@@ -54,9 +59,24 @@ export async function saveTeamBot(input: {
   name: string;
   role?: string;
   description?: string;
+  color?: BotColor;
+  shape?: BotShape;
+  isChiefOfStaff?: boolean;
 }): Promise<TeamBot> {
   const out = await teamFetch<{ bot: TeamBot }>('/team/bots', { method: 'POST', body: input });
   return out.bot;
+}
+
+export async function deleteTeamBot(id: string): Promise<void> {
+  await teamFetch<{ ok: boolean }>(`/team/bots/${id}`, { method: 'DELETE' });
+}
+
+export interface BotEdits {
+  name: string;
+  role: string;
+  isChiefOfStaff: boolean;
+  color: BotColor;
+  shape: BotShape;
 }
 
 export async function teamHistory(botId: string): Promise<{ entries: HistoryEntry[]; verified: boolean }> {

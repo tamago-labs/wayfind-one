@@ -18,7 +18,7 @@ import { reportUsage } from './runs/usage.js';
 import { listInstalledSkills, removeSkill, resolveSkillSource, saveSkillPreview, scanLocalSkills, validateSkillPreview } from './agent/skills.js';
 import { listMcpServers, patchMcpServer, removeMcpServer, restartMcpServer, saveMcpServer } from './agent/mcp.js';
 import { transcribeWav, VoiceError } from './voice/transcribe.js';
-import { ensureTeamSeed, getTeamBot, getTeamConfig, listTeamBots, readHistory, saveTeamBot, saveTeamConfig, toRosterEntry, verifyTeamManifest } from './team/store.js';
+import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listTeamBots, readHistory, saveTeamBot, saveTeamConfig, toRosterEntry, verifyTeamManifest } from './team/store.js';
 
 /** Browser origin for local dev (Amplify dev server). Loosen only for local. */
 const CORS_ORIGIN = process.env.AGENT_CORS_ORIGIN ?? '*';
@@ -447,16 +447,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   if (pathname === '/team/bots' && method === 'POST') {
     try {
-      const body = JSON.parse(await readBody(req)) as { id?: string; name?: string; role?: string; description?: string; color?: string; status?: 'active' | 'paused'; model?: string };
+      const body = JSON.parse(await readBody(req)) as { id?: string; name?: string; role?: string; description?: string; color?: string; shape?: string; isChiefOfStaff?: boolean; status?: 'active' | 'paused'; model?: string };
       if (!body || typeof body.name !== 'string' || !body.name.trim()) {
-        return void json(res, 400, { error: 'Body must be { name, role?, description?, color?, status?, model? }' });
+        return void json(res, 400, { error: 'Body must be { name, role?, description?, color?, shape?, isChiefOfStaff?, status?, model? }' });
       }
+      const colors = ['amber', 'moss', 'lagoon', 'ash', 'blue', 'coral', 'grape'] as const;
+      const shapes = ['blob', 'circle', 'squircle', 'pebble'] as const;
+      const color = colors.find((c) => c === body.color);
+      const shape = shapes.find((s) => s === body.shape);
       const bot = saveTeamBot({
         ...(typeof body.id === 'string' ? { id: body.id } : {}),
         name: body.name.trim(),
         ...(typeof body.role === 'string' ? { role: body.role } : {}),
         ...(typeof body.description === 'string' ? { description: body.description } : {}),
-        ...(typeof body.color === 'string' ? { color: body.color } : {}),
+        ...(color ? { color } : {}),
+        ...(shape ? { shape } : {}),
+        ...(typeof body.isChiefOfStaff === 'boolean' ? { isChiefOfStaff: body.isChiefOfStaff } : {}),
         ...(body.status === 'active' || body.status === 'paused' ? { status: body.status } : {}),
         ...(typeof body.model === 'string' ? { model: body.model } : {}),
       });
@@ -474,6 +480,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     } catch (err) {
       return void json(res, 400, { error: `team history failed: ${err instanceof Error ? err.message : err}` });
     }
+  }
+
+  const teamBotMatch = pathname.match(/^\/team\/bots\/([A-Za-z0-9-]+)$/);
+  if (teamBotMatch && method === 'DELETE') {
+    const ok = deleteTeamBot(teamBotMatch[1]);
+    return void json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown bot' });
   }
 
   if (pathname === '/team/config' && method === 'GET') {

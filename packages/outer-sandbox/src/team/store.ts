@@ -7,7 +7,7 @@
 //   team/config.json           team prefs (defaultModel, escalation mode)
 //   team/manifest.json         path -> sha256, written on every save
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { WORKSPACE_DIR } from '../core/config.js';
@@ -20,13 +20,18 @@ const MANIFEST_PATH = join(TEAM_DIR, 'manifest.json');
 
 const ID_RE = /^[A-Za-z0-9-]+$/;
 
+export const BOT_COLORS = ['amber', 'moss', 'lagoon', 'ash', 'blue', 'coral', 'grape'] as const;
+export const BOT_SHAPES = ['blob', 'circle', 'squircle', 'pebble'] as const;
+
 export const TeamBotSchema = z.object({
   v: z.literal(1),
   id: z.string().regex(ID_RE).max(64),
   name: z.string().min(1).max(40),
   role: z.string().max(80).optional(),
   description: z.string().max(200).optional(),
-  color: z.string().max(16).optional(),
+  color: z.enum(BOT_COLORS).optional(),
+  shape: z.enum(BOT_SHAPES).optional(),
+  isChiefOfStaff: z.boolean().default(false),
   status: z.enum(['active', 'paused']).default('active'),
   model: z.string().max(128).optional(),
   createdAt: z.string(),
@@ -93,9 +98,55 @@ export interface SaveBotInput {
   name: string;
   role?: string;
   description?: string;
-  color?: string;
+  color?: (typeof BOT_COLORS)[number];
+  shape?: (typeof BOT_SHAPES)[number];
+  isChiefOfStaff?: boolean;
   status?: 'active' | 'paused';
   model?: string;
+}
+
+/** Unused color/shape combo (cloud AppShell.createBot rule): prefer a
+ * combo nobody holds yet; fall back to random when exhausted. */
+export function freeCombo(): { color: (typeof BOT_COLORS)[number]; shape: (typeof BOT_SHAPES)[number] } {
+  const used = new Set<string>();
+  try {
+    for (const b of listTeamBots()) {
+      if (b.color && b.shape) used.add(`${b.color}/${b.shape}`);
+    }
+  } catch {
+    // Fresh team — everything is free.
+  }
+  const free: Array<{ color: (typeof BOT_COLORS)[number]; shape: (typeof BOT_SHAPES)[number] }> = [];
+  for (const color of BOT_COLORS) {
+    for (const shape of BOT_SHAPES) {
+      if (!used.has(`${color}/${shape}`)) free.push({ color, shape });
+    }
+  }
+  const pool = free.length > 0 ? free : BOT_COLORS.flatMap((color) => BOT_SHAPES.map((shape) => ({ color, shape })));
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function writeBotFile(bot: TeamBot): void {
+  writeFileSync(join(BOTS_DIR, `${bot.id}.json`), JSON.stringify(bot, null, 2));
+}
+
+/** Hard delete: bot file + thread history, then manifest. Missing id → false. */
+export function deleteTeamBot(id: string): boolean {
+  ensureTeamSeed('meta-models/Muse-Spark-Open-816B-A42B');
+  const safe = safeId(id);
+  let gone = false;
+  for (const p of [join(BOTS_DIR, `${safe}.json`), join(HISTORY_DIR, `${safe}.jsonl`)]) {
+    try {
+      if (existsSync(p)) {
+        unlinkSync(p);
+        gone = true;
+      }
+    } catch {
+      // Best-effort per file.
+    }
+  }
+  if (gone) writeManifest();
+  return gone;
 }
 
 export function saveTeamBot(input: SaveBotInput): TeamBot {
@@ -103,19 +154,30 @@ export function saveTeamBot(input: SaveBotInput): TeamBot {
   const id = input.id && ID_RE.test(input.id) ? input.id : randomUUID();
   const prev = getTeamBot(id);
   const now = new Date().toISOString();
+  const combo = !input.color || !input.shape ? freeCombo() : null;
   const bot = TeamBotSchema.parse({
     v: 1,
     id,
     name: input.name,
     ...(input.role !== undefined ? { role: input.role } : prev?.role ? { role: prev.role } : {}),
     ...(input.description !== undefined ? { description: input.description } : prev?.description ? { description: prev.description } : {}),
-    ...(input.color !== undefined ? { color: input.color } : prev?.color ? { color: prev.color } : {}),
+    color: input.color ?? prev?.color ?? combo?.color ?? 'amber',
+    shape: input.shape ?? prev?.shape ?? combo?.shape ?? 'blob',
+    isChiefOfStaff: input.isChiefOfStaff ?? prev?.isChiefOfStaff ?? false,
     status: input.status ?? prev?.status ?? 'active',
     ...(input.model !== undefined ? { model: input.model } : prev?.model ? { model: prev.model } : {}),
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   });
-  writeFileSync(join(BOTS_DIR, `${id}.json`), JSON.stringify(bot, null, 2));
+  writeBotFile(bot);
+  // One chief: crowning a new chief unsets all others.
+  if (bot.isChiefOfStaff) {
+    for (const other of listTeamBots()) {
+      if (other.id !== bot.id && other.isChiefOfStaff) {
+        writeBotFile({ ...other, isChiefOfStaff: false, updatedAt: now });
+      }
+    }
+  }
   writeManifest();
   return bot;
 }
