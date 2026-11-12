@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, PanelRight, Send } from 'lucide-react';
 import Mascot from '@/components/Mascot';
 import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun } from '@/lib/team';
@@ -36,6 +36,10 @@ interface BotReq {
   role?: string;
   description?: string;
   done?: 'created' | 'cancelled';
+  /** History length when the event arrived — cards render interleaved at this position. */
+  at: number;
+  /** Arrival sequence — breaks ties when several cards share one position. */
+  n: number;
 }
 
 interface ParkedQuestion {
@@ -46,6 +50,10 @@ interface ParkedQuestion {
     options: Array<{ label: string; description?: string }>;
   }>;
   done?: boolean;
+  /** History length when the event arrived — cards render interleaved at this position. */
+  at: number;
+  /** Arrival sequence — breaks ties when several cards share one position. */
+  n: number;
 }
 
 interface ParkedApproval {
@@ -53,6 +61,10 @@ interface ParkedApproval {
   permission?: string;
   target?: string;
   done?: 'approve' | 'reject' | 'approve-all';
+  /** History length when the event arrived — cards render interleaved at this position. */
+  at: number;
+  /** Arrival sequence — breaks ties when several cards share one position. */
+  n: number;
 }
 
 /** Trailing @mention being typed, e.g. "@Re" in "ask @Re". Null when none. */
@@ -148,6 +160,13 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   // renders token-by-token while polling, not all-at-once at done).
   const [liveText, setLiveText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  // History length mirror: parked cards stamp their arrival position so
+  // they render interleaved chronologically instead of after all history.
+  const entriesRef = useRef(0);
+  const arrivalRef = useRef(0);
+  useEffect(() => {
+    entriesRef.current = entries.length;
+  }, [entries]);
 
   const loadHistory = useCallback(async (botId: string) => {
     try {
@@ -210,22 +229,31 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       await waitForRun(runId, {
         onChunk: (delta) => setLiveText((prev) => prev + delta),
         onAgent: (label) => setAgentNotes((prev) => (prev.includes(label) ? prev : [...prev, label])),
-        onBotRequest: (r) =>
+        onBotRequest: (r) => {
+          const at = entriesRef.current;
+          const n = ++arrivalRef.current;
           setBotReqs((prev) =>
             prev.some((b) => b.bid === r.bid)
               ? prev
-              : [...prev, { bid: r.bid, name: r.botName, ...(r.botRole ? { role: r.botRole } : {}), ...(r.botDescription ? { description: r.botDescription } : {}) }],
-          ),
+              : [...prev, { bid: r.bid, name: r.botName, ...(r.botRole ? { role: r.botRole } : {}), ...(r.botDescription ? { description: r.botDescription } : {}), at, n }],
+          );
+        },
         // Parked states resume the same run once answered — the reply
         // streams on below without a second send.
-        onQuestion: (q) =>
-          setQuestions((prev) => (prev.some((x) => x.qid === q.qid) ? prev : [...prev, { qid: q.qid, questions: q.questions }])),
-        onApproval: (a) =>
+        onQuestion: (q) => {
+          const at = entriesRef.current;
+          const n = ++arrivalRef.current;
+          setQuestions((prev) => (prev.some((x) => x.qid === q.qid) ? prev : [...prev, { qid: q.qid, questions: q.questions, at, n }]));
+        },
+        onApproval: (a) => {
+          const at = entriesRef.current;
+          const n = ++arrivalRef.current;
           setApprovals((prev) =>
             prev.some((x) => x.approvalId === a.approvalId)
               ? prev
-              : [...prev, { approvalId: a.approvalId, ...(a.permission ? { permission: a.permission } : {}), ...(a.target ? { target: a.target } : {}) }],
-          ),
+              : [...prev, { approvalId: a.approvalId, ...(a.permission ? { permission: a.permission } : {}), ...(a.target ? { target: a.target } : {}), at, n }],
+          );
+        },
       });
       setLiveText('');
       // First chat defines the role (never for chiefs, never from hellos):
@@ -403,17 +431,125 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
 
       <div className="thread-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-3 text-[15px]">
-          {entries.map((m) =>
-            m.role === 'user' ? (
-              <div key={m.seq} className="msg-in ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-cta px-4 py-2.5 text-white">
-                <p className="whitespace-pre-wrap">{m.content}</p>
-              </div>
-            ) : (
-              <div key={m.seq} className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
-                <Markdown text={m.content} />
-              </div>
-            ),
-          )}
+          {(() => {
+            // Chronological thread: history entries with parked cards slotted
+            // in where their events arrived (cloud appends them in place).
+            // Positions clamp to the end if history shifted underneath.
+            const slot = (at: number) => Math.min(Math.max(0, at), entries.length);
+            const cards: Array<{ at: number; n: number; key: string; node: JSX.Element }> = [];
+            botReqs.forEach((r) => {
+              cards.push({
+                at: slot(r.at),
+                n: r.n,
+                key: `br-${r.bid}`,
+                node: (
+                  <div className="max-w-[85%] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-cta">New Bot</p>
+                    <p className="mt-0.5 font-bold text-navy">
+                      {r.name}
+                      {r.role && <span className="font-medium text-navy/50"> · {r.role}</span>}
+                    </p>
+                    {r.description && <p className="mt-1 text-sm text-navy/60">{r.description}</p>}
+                    {r.done === undefined ? (
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          onClick={() => answerRequest(r, true)}
+                          className="rounded-full bg-navy px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy/90"
+                        >
+                          Create Bot
+                        </button>
+                        <button
+                          onClick={() => answerRequest(r, false)}
+                          className="rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold text-navy hover:bg-slate-50"
+                        >
+                          Not now
+                        </button>
+                      </div>
+                    ) : (
+                      <p className={`mt-2 text-sm font-bold ${r.done === 'created' ? 'text-blagoon' : 'text-slate-400'}`}>
+                        {r.done === 'created' ? '✓ Created' : 'Declined'}
+                      </p>
+                    )}
+                  </div>
+                ),
+              });
+            });
+            questions.forEach((q, i) => {
+              cards.push({
+                at: slot(q.at),
+                n: q.n,
+                key: `q-${q.qid}`,
+                node: <QuestionCard q={q} onAnswer={(answers) => void answerQ(i, answers)} />,
+              });
+            });
+            approvals.forEach((a, i) => {
+              cards.push({
+                at: slot(a.at),
+                n: a.n,
+                key: `a-${a.approvalId}`,
+                node: (
+                  <div className="msg-in rounded-2xl border border-bamber/50 bg-white p-4 shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-cta">Approval needed</p>
+                    <p className="mt-0.5 font-bold text-navy">{a.permission ?? 'Permission'}</p>
+                    {a.target && <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-sm text-navy/60">{a.target}</p>}
+                    {a.done === undefined ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => void decideAppr(i, 'approve')}
+                          className="rounded-full bg-navy px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy/90"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => void decideAppr(i, 'reject')}
+                          className="rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold text-navy hover:bg-slate-50"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          onClick={() => void decideAppr(i, 'approve-all')}
+                          className="rounded-full px-4 py-1.5 text-sm font-semibold text-navy/50 hover:bg-slate-50"
+                        >
+                          Approve all
+                        </button>
+                      </div>
+                    ) : (
+                      <p className={`mt-2 text-sm font-bold ${a.done === 'reject' ? 'text-slate-400' : 'text-blagoon'}`}>
+                        {a.done === 'reject' ? 'Rejected' : a.done === 'approve-all' ? '✓ Approved (all)' : '✓ Approved'}
+                      </p>
+                    )}
+                  </div>
+                ),
+              });
+            });
+            cards.sort((x, y) => x.at - y.at || x.n - y.n);
+            const byPos = new Map<number, typeof cards>();
+            for (const c of cards) {
+              const list = byPos.get(c.at);
+              if (list) list.push(c);
+              else byPos.set(c.at, [c]);
+            }
+            const atPos = (pos: number) => (byPos.get(pos) ?? []).map((c) => <Fragment key={c.key}>{c.node}</Fragment>);
+            return (
+              <>
+                {entries.map((m, i) => (
+                  <Fragment key={m.seq}>
+                    {atPos(i)}
+                    {m.role === 'user' ? (
+                      <div className="msg-in ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-cta px-4 py-2.5 text-white">
+                        <p className="whitespace-pre-wrap">{m.content}</p>
+                      </div>
+                    ) : (
+                      <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
+                        <Markdown text={m.content} />
+                      </div>
+                    )}
+                  </Fragment>
+                ))}
+                {atPos(entries.length)}
+              </>
+            );
+          })()}
           {busy && liveText && (
             <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
               <Markdown text={liveText} />
@@ -428,76 +564,10 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
               </span>
             </div>
           )}
-          {botReqs.map((r) => (
-            <div key={r.bid} className="max-w-[85%] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-cta">New Bot</p>
-              <p className="mt-0.5 font-bold text-navy">
-                {r.name}
-                {r.role && <span className="font-medium text-navy/50"> · {r.role}</span>}
-              </p>
-              {r.description && <p className="mt-1 text-sm text-navy/60">{r.description}</p>}
-              {r.done === undefined ? (
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    onClick={() => answerRequest(r, true)}
-                    className="rounded-full bg-navy px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy/90"
-                  >
-                    Create Bot
-                  </button>
-                  <button
-                    onClick={() => answerRequest(r, false)}
-                    className="rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold text-navy hover:bg-slate-50"
-                  >
-                    Not now
-                  </button>
-                </div>
-              ) : (
-                <p className={`mt-2 text-sm font-bold ${r.done === 'created' ? 'text-blagoon' : 'text-slate-400'}`}>
-                  {r.done === 'created' ? '✓ Created' : 'Declined'}
-                </p>
-              )}
-            </div>
-          ))}
           {agentNotes.map((label) => (
             <div key={label} className="msg-in flex items-center gap-2 px-1 text-xs font-semibold text-navy/50">
               <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-bamber" />
               <span>{label}</span>
-            </div>
-          ))}
-          {questions.map((q, i) => (
-            <QuestionCard key={q.qid} q={q} onAnswer={(answers) => void answerQ(i, answers)} />
-          ))}
-          {approvals.map((a, i) => (
-            <div key={a.approvalId} className="msg-in rounded-2xl border border-bamber/50 bg-white p-4 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-cta">Approval needed</p>
-              <p className="mt-0.5 font-bold text-navy">{a.permission ?? 'Permission'}</p>
-              {a.target && <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-sm text-navy/60">{a.target}</p>}
-              {a.done === undefined ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => void decideAppr(i, 'approve')}
-                    className="rounded-full bg-navy px-4 py-1.5 text-sm font-semibold text-white hover:bg-navy/90"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => void decideAppr(i, 'reject')}
-                    className="rounded-full border border-slate-300 px-4 py-1.5 text-sm font-semibold text-navy hover:bg-slate-50"
-                  >
-                    Reject
-                  </button>
-                  <button
-                    onClick={() => void decideAppr(i, 'approve-all')}
-                    className="rounded-full px-4 py-1.5 text-sm font-semibold text-navy/50 hover:bg-slate-50"
-                  >
-                    Approve all
-                  </button>
-                </div>
-              ) : (
-                <p className={`mt-2 text-sm font-bold ${a.done === 'reject' ? 'text-slate-400' : 'text-blagoon'}`}>
-                  {a.done === 'reject' ? 'Rejected' : a.done === 'approve-all' ? '✓ Approved (all)' : '✓ Approved'}
-                </p>
-              )}
             </div>
           ))}
           {showSuggestions && (
