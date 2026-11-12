@@ -7,6 +7,8 @@ const config: Config = {
       colors: {
         navy: '#0E1B2C',
         ink: '#38506B',
+        heroslate: '#38506B',
+        ice: '#E9F1FA',
         cta: '#2F7BFF',
         ctahover: '#1F63DA',
         mist: '#F4F7FB',
@@ -20,6 +22,7 @@ const config: Config = {
       },
       fontFamily: {
         brico: ['var(--font-brico)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
     },
   },

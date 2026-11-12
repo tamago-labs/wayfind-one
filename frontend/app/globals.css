@@ -49,3 +49,36 @@ body {
   .animate-mascot-bob,
   .animate-mascot-wiggle { animation: none; }
 }
+
+/* Landing hero aurora (animated gradient + drifting orbs). */
+.aurora {
+  background:
+    radial-gradient(600px 400px at 15% 20%, rgba(47, 123, 255, 0.35), transparent 60%),
+    radial-gradient(500px 380px at 85% 30%, rgba(139, 92, 246, 0.30), transparent 60%),
+    radial-gradient(550px 420px at 50% 90%, rgba(16, 185, 129, 0.22), transparent 60%),
+    #0E1B2C;
+  background-size: 200% 200%, 200% 200%, 200% 200%, auto;
+  animation: aurora 14s ease-in-out infinite alternate;
+}
+
+@keyframes aurora {
+  from { background-position: 0% 0%, 100% 0%, 50% 100%, 0 0; }
+  to { background-position: 100% 100%, 0% 100%, 80% 0%, 0 0; }
+}
+
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.5;
+  animation: orb-drift 9s ease-in-out infinite alternate;
+}
+
+@keyframes orb-drift {
+  from { transform: translateY(-14px); }
+  to { transform: translateY(14px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora, .orb { animation: none; }
+}

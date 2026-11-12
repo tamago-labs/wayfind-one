@@ -29,26 +29,23 @@ export default function Landing() {
   return (
     <ThemeProvider theme={theme}>
       <main className="flex min-h-screen flex-col lg:flex-row">
-        {/* Hero — 50% left */}
-        <section className="flex w-full flex-col bg-navy px-8 pb-6 pt-6 text-white lg:w-[55%] lg:px-16">
-          <div className="flex flex-1 flex-col "> 
-          <div className="flex items-center gap-2.5 mt-6">
+        {/* Hero — 55% left, aurora animated gradient */}
+        <section className="aurora relative flex w-full flex-col overflow-hidden px-8 pb-6 pt-6 text-white lg:w-[55%] lg:px-16">
+          <div className="orb left-[10%] top-[15%] h-40 w-40 bg-cta/60"></div>
+          <div className="orb right-[12%] top-[55%] h-32 w-32 bg-violet-500/50" style={{ animationDelay: '-4s' }}></div>
+          <div className="relative flex items-center gap-2.5">
             <Mascot color="white" size="sm" motion="none" label="Wayfind mascot" />
             <span className="font-brico text-lg font-bold text-white">Wayfind ONE</span>
           </div>
-          <h1 className="mt-4 max-w-2xl text-4xl font-bold leading-tight lg:text-5xl">
-            Ephemeral environments for a verifiable AI workforce.
-          </h1>
-          <p className="mt-4 max-w-xl text-lg text-white/80">
-            Built for organizations that need AI to work with sensitive data.
-          </p>
-          <ul className="mt-8 max-w-xl space-y-3 text-white/85">
-            <li><span className="font-semibold text-white">Ephemeral execution.</span> Every task runs in an isolated microVM that is terminated when the session ends.</li>
-            <li><span className="font-semibold text-white">Verified inference.</span> NEAR AI attestation verifies the inference environment and model identity, with verification evidence recorded per request.</li>
-            <li><span className="font-semibold text-white">Verifiable evidence.</span> Every execution produces a signed receipt documenting its security checks and execution history.</li>
-          </ul>
+          <div className="relative flex flex-1 flex-col justify-center">
+            <h1 className="mt-8 max-w-2xl font-display text-4xl font-bold leading-[1.05] lg:text-6xl">
+              Ephemeral environments for a verifiable AI workforce.
+            </h1>
+            <p className="mt-4 max-w-xl text-lg text-white/80">
+              Built for organizations that need AI to work with sensitive data.
+            </p>
           </div>
-          <p className="mt-auto text-xs text-white/50">© 2026 Tamago Labs Japan</p>
+          <p className="relative mt-10 text-xs text-white/50">© 2026 Tamago Labs</p>
         </section>
 
         {/* Login — 50% right */}
