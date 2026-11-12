@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LogOut, Pencil, RotateCcw, Settings, ShieldCheck } from 'lucide-react';
+import { LogOut, Pencil, Settings, ShieldCheck } from 'lucide-react';
 import { getCurrentUser, signOut } from 'aws-amplify/auth';
-import { restartOuterComputer, computerAction } from '@/lib/computer';
 import { getMyProfile } from '@/lib/data';
 import ProfileModal from './ProfileModal';
 
@@ -20,7 +19,6 @@ export default function SidebarFooter({ email, onSettings, onTrustCenter }: { em
   const [displayName, setDisplayName] = useState('');
   const [nameOpen, setNameOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [restarting, setRestarting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -66,42 +64,6 @@ export default function SidebarFooter({ email, onSettings, onTrustCenter }: { em
     setMenuOpen(false);
     await signOut();
     router.push('/');
-  };
-
-  // Fresh boot from the current golden image: suspend flushes the team to
-  // S3 first (terminate alone would drop unsynced changes), terminate drops
-  // the stale VM, reload re-provisions. Needed whenever a new image ships —
-  // suspend/resume otherwise keeps the old code.
-  const handleRestart = async () => {
-    setMenuOpen(false);
-    if (
-      !window.confirm(
-        'Restart your computer? Your team is saved first, then it reboots fresh from the latest image (about a minute).',
-      )
-    )
-      return;
-    setRestarting(true);
-    try {
-      try {
-        await restartOuterComputer();
-      } catch (e) {
-        // Suspend failed (VM unreachable?) — the flush may not have
-        // happened. Terminate directly only with explicit consent.
-        if (
-          !window.confirm(
-            `Could not save the workspace first (${e instanceof Error ? e.message : String(e)}). Terminate anyway? Unsaved changes may be lost.`,
-          )
-        ) {
-          setRestarting(false);
-          return;
-        }
-        await computerAction('terminate', 'one_outer');
-      }
-      window.location.reload();
-    } catch (e) {
-      window.alert(`Restart failed: ${e instanceof Error ? e.message : String(e)}`);
-      setRestarting(false);
-    }
   };
 
   return (
@@ -155,15 +117,6 @@ export default function SidebarFooter({ email, onSettings, onTrustCenter }: { em
                 >
                   <Settings className="h-4 w-4" strokeWidth={2.2} />
                   Settings
-                </button>
-                <button
-                  role="menuitem"
-                  onClick={handleRestart}
-                  disabled={restarting}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-semibold text-navy hover:bg-ice disabled:opacity-50"
-                >
-                  <RotateCcw className="h-4 w-4" strokeWidth={2.2} />
-                  {restarting ? 'Restarting…' : 'Restart computer'}
                 </button>
                 <div className="mx-4 my-1 border-t border-navy/10" aria-hidden="true" />
                 <button
