@@ -507,15 +507,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   // Team chat: one user turn as a bot. System brief defaults to the bot's
   // file; conversationId defaults to team/<botId> so the SDK session is
-  // per-bot. Chat-only in Phase 1: empty skill/MCP allowlists.
+  // per-bot. Chat-only: empty skill/MCP allowlists. Roster scoping mirrors
+  // cloud (chief thread: every bot; member thread: the chief only), and
+  // chiefs get the create_bot tool (confirm card in the thread).
   if (pathname === '/team/chat' && method === 'POST') {
     if (!keysReady()) {
       return void json(res, 503, { error: 'computer not initialized — POST /hooks/run first' });
     }
     try {
-      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string };
+      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string; hello?: boolean };
       if (!body || typeof body.botId !== 'string' || typeof body.text !== 'string' || !body.text.trim()) {
-        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId? }' });
+        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId?, hello? }' });
       }
       const bot = getTeamBot(body.botId);
       if (!bot || bot.status !== 'active') {
@@ -523,14 +525,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       }
       if (typeof body.apiUrl === 'string' && body.apiUrl) process.env.WAYFIND_API_URL = body.apiUrl;
       const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}`;
+      const isChief = bot.isChiefOfStaff === true;
+      const all = listTeamBots().slice(0, 50);
+      const chief = all.find((b) => b.isChiefOfStaff && b.status !== 'paused');
+      const roster = (isChief ? all : chief ? [chief] : []).map(toRosterEntry);
       const r = startRun(body.text.trim(), {
         ...(typeof body.model === 'string' ? { model: body.model } : bot.model ? { model: bot.model } : {}),
         conversationId: `team/${bot.id}`,
         teamBotId: bot.id,
+        ...(body.hello === true ? { hello: true as const } : {}),
         system,
         allowedSkills: [],
         allowedMcp: [],
-        roster: listTeamBots().slice(0, 50).map(toRosterEntry),
+        canManageBots: isChief,
+        roster,
         ...(typeof body.ownerId === 'string' && body.ownerId ? { ownerId: body.ownerId.slice(0, 128) } : {}),
         ...(typeof body.apiUrl === 'string' && body.apiUrl ? { apiUrl: body.apiUrl } : {}),
       });
@@ -934,14 +942,19 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         return void json(res, 503, { error: 'computer not initialized — POST /hooks/run first' });
       }
       // Live key (never the import-time snapshot — /run may inject later).
-      const { drawKey } = await import('./providers/keystore.js');
-      const client = new OpenAI({ apiKey: process.env.MODAL_API_KEY ?? drawKey('MODAL_API_KEY') ?? '', baseURL: PROVIDER_BASE_URL });
+      // Modal-only like the agent loop: the catalog entry carries the
+      // endpoint, the keystore the key. Never api.meta.ai direct.
+      const { loadCatalog, resolveApiKey } = await import('./providers/providers.js');
+      const modal = loadCatalog().providers?.['modal'];
+      if (!modal) throw new Error('modal provider missing from providers.json — fail closed');
+      const client = new OpenAI({ apiKey: resolveApiKey(modal) || '', baseURL: modal.baseURL });
+      const summarizeModel = loadCatalog().defaults?.model ?? PROVIDER_MODEL;
       // NOTE: muse-spark spends part of the token budget on hidden reasoning
       // (usage.reasoning_tokens) — a small max_tokens starves the visible
       // reply and yields null content. Keep the budget generous; the answer
       // itself is still one short line.
       const out = await client.chat.completions.create({
-        model: PROVIDER_MODEL,
+        model: summarizeModel,
         max_tokens: 1000,
         temperature: 0,
         messages: [
@@ -960,7 +973,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         .slice(0, 80);
       await reportUsage({
         runId: 'summarize-role',
-        model: PROVIDER_MODEL,
+        model: summarizeModel,
         kind: 'summarize',
         unit: 'calls',
         quantity: 1,

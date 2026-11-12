@@ -56,6 +56,8 @@ export interface Run {
   conversationId?: string;
   /** Team bot this run chats as — set from StartRunOpts, drives history dual-write. */
   teamBotId?: string;
+  /** Hello run: skip the user-turn dual-write (the prompt is scaffolding, not chat). */
+  hello?: boolean;
   /** Raw user text of the current turn — set by executeRun for history dual-write. */
   inputText?: string;
   depth: number;
@@ -615,6 +617,9 @@ export interface StartRunOpts {
    * dual-write on completion — top-level runs only, children stay in the
    * runner transcript. Undefined = plain /task run, no team history. */
   teamBotId?: string;
+  /** Hello run (bot-initiated intro): the user turn is the hello prompt,
+   * not a real user message — dual-write the assistant reply only. */
+  hello?: boolean;
   /** Delegated run (message_bot): acts under the parent's delegation grant —
    * tool asks auto-pass audit-logged like `task` children, instead of
    * parking on approvals nobody can see (only the chief's run streams). */
@@ -862,10 +867,11 @@ async function driveStream(runState: Run, stream: unknown, startedAt: number): P
   appendTranscript(runState.id, 'assistant', withImages, runState.parentId, runState.conversationId);
   // Team history dual-write: top-level team runs land in the bot's
   // hash-chained team/history jsonl (user-facing chat log). Children and
-  // plain /task runs stay in the runner transcript only.
+  // plain /task runs stay in the runner transcript only. Hello runs skip
+  // the user turn — the intro prompt must never render as chat.
   if (runState.teamBotId && !runState.parentId) {
     try {
-      appendHistory(runState.teamBotId, 'user', runState.inputText ?? '');
+      if (!runState.hello) appendHistory(runState.teamBotId, 'user', runState.inputText ?? '');
       appendHistory(runState.teamBotId, 'assistant', withSources);
     } catch (err) {
       console.error('[team-history] append failed:', err instanceof Error ? err.message : err);
@@ -979,6 +985,7 @@ function newRunState(opts: StartRunOpts): Run {
     },
     conversationId: opts.conversationId,
     teamBotId: opts.teamBotId,
+    hello: opts.hello,
     allowedSkills: opts.allowedSkills,
     allowedMcp: opts.allowedMcp,
     canManageBots: opts.canManageBots,

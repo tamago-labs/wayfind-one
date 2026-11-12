@@ -26,6 +26,21 @@ export async function apiFetch<T = unknown>(path: string, opts: { method?: strin
   return data as T;
 }
 
+/** Raw-body sibling of apiFetch (voice blobs etc.): forwards bytes + content-type untouched. */
+export async function apiFetchRaw<T = unknown>(path: string, opts: { method?: string; contentType?: string; body?: BodyInit } = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: opts.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${await idToken()}`,
+      ...(opts.contentType ? { 'Content-Type': opts.contentType } : {}),
+    },
+    body: opts.body,
+  });
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? `request failed (${res.status})`);
+  return data as T;
+}
+
 export interface ConversationMeta {
   conversationId: string;
   botId: string | null;

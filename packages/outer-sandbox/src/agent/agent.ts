@@ -121,7 +121,7 @@ export async function createTriageAgent(
     tools = tools.filter((t) => !RESEARCH_DENY.has((t as { name: string }).name));
   }
   const chiefGuidance = botRequest
-    ? 'You can create a new bot with the create_bot tool when the user asks for one — they confirm on a card before it is created. Never claim a bot exists unless create_bot confirmed it. '
+    ? 'When the user asks for a new bot (e.g. "make a bot named Jane who is an intern"), call the create_bot tool IMMEDIATELY with that name and role — never interview them first, never describe alternatives instead of acting. The user confirms on a card before anything is created. Never claim a bot exists unless create_bot confirmed it. '
     : '';
   const teamGuidance = team
     ? team.isChief

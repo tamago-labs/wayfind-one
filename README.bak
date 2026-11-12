@@ -1,6 +1,6 @@
 # Wayfind ONE
 
-> Ephemeral environments for a verifiable AI workforce.
+> A private AI workforce you can verify.
 
 ## Hackathon Highlights
 

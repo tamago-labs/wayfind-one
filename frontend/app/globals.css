@@ -42,12 +42,30 @@ body {
 .animate-mascot-bob { animation: mascot-bob 7s ease-in-out infinite; }
 .animate-mascot-wiggle { animation: mascot-wiggle 0.45s ease-in-out; }
 
+/* App thread (same as wayfind-cloud): staggered typing dots + message entrance. */
+@keyframes typing-dots {
+  0%, 80%, 100% { opacity: 0.25; }
+  40% { opacity: 1; }
+}
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.msg-in { animation: msg-in 0.3s ease both; }
+.typing-dots i { animation: typing-dots 1.2s infinite; }
+.typing-dots i:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.4s; }
+.thread-scroll { scrollbar-width: thin; }
+
 @media (prefers-reduced-motion: reduce) {
   .animate-floaty,
   .animate-mascot-blink,
   .animate-mascot-blink-slow,
   .animate-mascot-bob,
   .animate-mascot-wiggle { animation: none; }
+  .msg-in, .typing-dots i { animation: none; }
 }
 
 /* Landing hero aurora (animated gradient + drifting orbs). */

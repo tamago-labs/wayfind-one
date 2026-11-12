@@ -89,6 +89,7 @@ export default function OneShell({ email }: { email?: string }) {
           ...(isChief ? { role: 'Chief of staff', isChiefOfStaff: true } : {}),
         });
         await loadBots(bot.id);
+        setSelectedId(bot.id);
         setModalOpen(false);
         return null;
       } catch (e) {
@@ -147,7 +148,7 @@ export default function OneShell({ email }: { email?: string }) {
       : 'Setting up your computer…';
 
   return (
-    <div className="flex min-h-screen bg-mist font-brico text-navy">
+    <div className="flex h-screen overflow-hidden bg-mist font-brico text-navy">
       <Sidebar
         email={email}
         open={navOpen}
@@ -203,7 +204,22 @@ export default function OneShell({ email }: { email?: string }) {
             </div>
           </div>
         ) : (
-          <TeamChat bot={selected} disabled={!ready} disabledHint={bootHint} onBusy={setBusyId} onNeedBots={() => setModalOpen(true)} onOpenSettings={() => setPanelOpen(true)} />
+          <TeamChat
+            bot={selected}
+            bots={bots ?? []}
+            disabled={!ready}
+            disabledHint={bootHint}
+            mentionNames={(() => {
+              const list = (bots ?? []).filter((b) => b.status !== 'paused');
+              if (selected?.isChiefOfStaff) return list.filter((b) => b.id !== selected.id).map((b) => b.name);
+              const chief = list.find((b) => b.isChiefOfStaff);
+              return chief ? [chief.name] : [];
+            })()}
+            onBusy={setBusyId}
+            onNeedBots={() => setModalOpen(true)}
+            onOpenSettings={() => setPanelOpen(true)}
+            onTeamChanged={() => loadBots()}
+          />
         )}
       </main>
       <NewBotModal
