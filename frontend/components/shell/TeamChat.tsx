@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, PanelRight, Send } from 'lucide-react';
+import { Loader2, Mic, PanelRight, Paperclip, Send, ShieldCheck, X } from 'lucide-react';
 import Mascot from '@/components/Mascot';
 import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun } from '@/lib/team';
 import Markdown from './Markdown';
@@ -152,6 +152,9 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   const [questions, setQuestions] = useState<ParkedQuestion[]>([]);
   const [approvals, setApprovals] = useState<ParkedApproval[]>([]);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [attached, setAttached] = useState<Array<{ name: string; contentBase64: string }>>([]);
+  const [sandboxMode, setSandboxMode] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   // History for the selected bot has loaded at least once — the hello
   // effect must wait for this, otherwise it fires into the pre-load
   // empty thread on every reload and greets again.
@@ -203,8 +206,8 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [entries, busy, liveText, botReqs, agentNotes, questions, approvals]);
 
-  async function sendText(text: string, opts?: { hello?: boolean }) {
-    if (!bot || !text.trim() || busy || disabled) return;
+  async function sendText(text: string, opts?: { hello?: boolean; files?: Array<{ name: string; contentBase64: string }>; sandboxMode?: boolean }) {
+    if (!bot || (!text.trim() && !(opts?.files && opts.files.length > 0)) || busy || disabled) return;
     const learnRole = !bot.role && !bot.isChiefOfStaff && !opts?.hello;
     setBusy(true);
     setLiveText('');
@@ -215,17 +218,22 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     // with the typing indicator; history reload after done replaces it
     // with the server copy. Hellos skip this — the prompt must never render.
     if (!opts?.hello) {
-      const optimistic = text.trim();
+      const optimistic = text.trim() + (opts?.files && opts.files.length > 0 ? ` [attached: ${opts.files.map((f) => f.name).join(', ')}]` : '');
       setEntries((prev) => [...prev, { seq: -Date.now(), role: 'user' as const, content: optimistic }]);
     }
     try {
-      const { runId } = await teamChat(bot.id, text.trim(), undefined, opts?.hello);
+      const { runId } = await teamChat(bot.id, text.trim() || '(files attached — see attachment list)', undefined, opts?.hello, {
+        ...(opts?.files && opts.files.length > 0 ? { files: opts.files.map((f) => ({ path: f.name, contentBase64: f.contentBase64 })) } : {}),
+        ...(opts?.sandboxMode ? { sandboxMode: true } : {}),
+      });
       if (!runId) {
         // Server says this bot was already greeted — just show its history.
         await loadHistory(bot.id);
         return;
       }
       setDraft('');
+      setAttached([]);
+      setSandboxMode(false);
       await waitForRun(runId, {
         onChunk: (delta) => setLiveText((prev) => prev + delta),
         onAgent: (label) => setAgentNotes((prev) => (prev.includes(label) ? prev : [...prev, label])),
@@ -296,7 +304,27 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   }, [bot, disabled, entries]);
 
   function send() {
-    sendText(draft);
+    const files = attached.length > 0 ? [...attached] : undefined;
+    sendText(draft, { ...(files ? { files } : {}), ...(sandboxMode ? { sandboxMode: true } : {}) });
+  }
+
+  function pickFiles(list: FileList | null) {
+    if (!list) return;
+    const remaining = 5 - attached.length;
+    const chosen = Array.from(list).slice(0, Math.max(remaining, 0));
+    for (const f of chosen) {
+      if (f.size === 0 || f.size > 10 * 1024 * 1024) {
+        setError(`${f.name}: empty or over 10MB — skipped.`);
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result ?? '');
+        const b64 = dataUrl.includes(',') ? dataUrl.split(',').slice(1).join(',') : dataUrl;
+        setAttached((prev) => (prev.length >= 5 || prev.some((a) => a.name === f.name) ? prev : [...prev, { name: f.name, contentBase64: b64 }]));
+      };
+      reader.readAsDataURL(f);
+    }
   }
 
   async function answerRequest(req: BotReq, ok: boolean) {
@@ -590,6 +618,31 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
 
       <div className="shrink-0 px-4 pb-4">
         <div className="relative mx-auto max-w-2xl">
+          {attached.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+              {attached.map((f) => (
+                <span key={f.name} className="flex items-center gap-1.5 rounded-full bg-white py-1 pl-3 pr-1.5 text-xs font-semibold text-navy shadow-sm">
+                  <Paperclip className="h-3 w-3" strokeWidth={2.4} />
+                  {f.name}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${f.name}`}
+                    disabled={disabled || busy}
+                    onClick={() => setAttached((prev) => prev.filter((a) => a.name !== f.name))}
+                    className="grid h-5 w-5 place-items-center rounded-full text-navy/50 hover:bg-slate-100 hover:text-navy disabled:opacity-40"
+                  >
+                    <X className="h-3 w-3" strokeWidth={2.4} />
+                  </button>
+                </span>
+              ))}
+              {sandboxMode && (
+                <span className="flex items-center gap-1.5 rounded-full bg-navy py-1 pl-3 pr-3 text-xs font-semibold text-white shadow-sm">
+                  <ShieldCheck className="h-3 w-3" strokeWidth={2.4} />
+                  sandbox run
+                </span>
+              )}
+            </div>
+          )}
           {mentions.length > 0 && (
             <div className="absolute bottom-full left-4 right-4 z-10 mb-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
               {mentions.map((n) => (
@@ -617,8 +670,30 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
               if (!disabled) send();
             }}
             aria-disabled={disabled}
-            className={`relative mx-auto flex max-w-2xl items-center gap-2 rounded-full border border-slate-200 bg-white p-1.5 shadow-sm focus-within:border-cta ${disabled ? 'opacity-60' : ''}`}
+            className={`relative mx-auto flex max-w-2xl items-center gap-2 rounded-full border px-3 py-1.5 shadow-sm focus-within:border-cta ${sandboxMode ? 'border-navy bg-navy/[0.04]' : 'border-slate-200 bg-white'} ${disabled ? 'opacity-60' : ''}`}
           >
+            <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { pickFiles(e.target.files); e.target.value = ''; }} />
+            <button
+              type="button"
+              aria-label="Attach files"
+              title="Attach files (stored on your computer, pushed sealed to a sandbox on escalation)"
+              disabled={disabled || busy || attached.length >= 5}
+              onClick={() => fileRef.current?.click()}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-navy/50 hover:bg-slate-100 hover:text-navy disabled:opacity-40"
+            >
+              <Paperclip className="h-[18px] w-[18px]" strokeWidth={2.4} />
+            </button>
+            <button
+              type="button"
+              aria-label="Sandbox run"
+              title={sandboxMode ? 'Sandbox run on — this message escalates to a disposable attested sandbox' : 'Run in a disposable attested sandbox'}
+              aria-pressed={sandboxMode}
+              disabled={disabled || busy}
+              onClick={() => setSandboxMode((v) => !v)}
+              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full disabled:opacity-40 ${sandboxMode ? 'bg-navy text-white hover:bg-navy/90' : 'text-navy/50 hover:bg-slate-100 hover:text-navy'}`}
+            >
+              <ShieldCheck className="h-[18px] w-[18px]" strokeWidth={2.4} />
+            </button>
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -645,7 +720,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
             <button
               type="submit"
               aria-label="Send"
-              disabled={disabled || busy || !draft.trim()}
+              disabled={disabled || busy || (!draft.trim() && attached.length === 0)}
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-cta text-white hover:bg-ctahover disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-[18px] w-[18px] animate-spin" strokeWidth={2.4} /> : <Send className="h-[18px] w-[18px]" strokeWidth={2.4} />}

@@ -247,10 +247,22 @@ export async function teamHistory(botId: string): Promise<{ entries: HistoryEntr
   return teamFetch(`/team/history/${botId}`);
 }
 
-export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean): Promise<{ runId: string | null; greeted?: boolean }> {
+export interface ChatAttachment {
+  path: string;
+  contentBase64: string;
+}
+
+export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean, opts?: { files?: ChatAttachment[]; sandboxMode?: boolean }): Promise<{ runId: string | null; greeted?: boolean }> {
   return teamFetch('/team/chat', {
     method: 'POST',
-    body: { botId, text, ...(ownerId ? { ownerId } : {}), ...(hello ? { hello: true } : {}) },
+    body: {
+      botId,
+      text,
+      ...(ownerId ? { ownerId } : {}),
+      ...(hello ? { hello: true } : {}),
+      ...(opts?.files && opts.files.length > 0 ? { files: opts.files } : {}),
+      ...(opts?.sandboxMode ? { sandboxMode: true } : {}),
+    },
   });
 }
 

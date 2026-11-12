@@ -91,8 +91,11 @@ no second sidebar anywhere.
    settings (renamed from Trust Center; ONE's equivalent of cloud's
    bot-settings panel).
 4. Composer: keep input + send; send button shows spinner while busy;
-   placeholder shows `disabledHint` when gated. Attachments, voice,
-   skills/MCP pickers, @mentions: explicitly out (no backend for them).
+   placeholder shows `disabledHint` when gated. Attachments: BUILT —
+   paperclip + 5-file chips + sandbox-mode toggle in TeamChat;
+   `/team/chat` accepts `files[]` (jailed, 10MB each) + `sandboxMode`
+   (appends escalation instruction). Skills/MCP pickers, @mentions:
+   @mentions exist.
 5. Port cloud `Markdown.tsx` minus `VmImage` (plain `<img>`), with
    `react-markdown` + `remark-gfm` + `rehype-highlight` +
    `highlight.js` + github.css.
