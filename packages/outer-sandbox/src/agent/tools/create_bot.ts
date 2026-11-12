@@ -30,7 +30,8 @@ export function createBotRequestTool(hook: BotRequestHook): ReturnType<typeof to
     name: 'create_bot',
     description:
       'Propose a new bot for the user. The user sees a confirmation card with the name and role — the bot is only created after they confirm. ' +
-      'Use when the user asks for a new bot or helper. Keep names short (one word) and roles to a few words.',
+      'Use when the user asks for a new bot or helper. Keep names short (one word) and roles to a few words. ' +
+      'This is the ONLY way to create a bot — never write team files by hand with shell/write/edit.',
     parameters: z.object({
       name: z.string().describe('Bot name, one short word, e.g. "Reef"'),
       role: z.string().optional().describe('Short role label, e.g. "travel planner"'),
