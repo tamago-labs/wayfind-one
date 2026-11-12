@@ -126,10 +126,10 @@ export async function createTriageAgent(
   const teamGuidance = team
     ? team.isChief
       ? rosterDirectory(team.roster, true) +
-        ' When the user\'s text @mentions a bot by name, or asks you to consult one, call message_bot with that bot\'s name and relay its reply. ' +
+        ' When the user\'s text @mentions a bot by name, or asks you to consult one, call message_bot with that bot\'s name and relay its reply — call it IMMEDIATELY, never answer for them from your own knowledge and never invent what they would say. ' +
         'Delegate — do not redo the work yourself while it answers. '
       : rosterDirectory(team.roster, false) +
-        ' When the user asks you to check with them, escalate something, or get their input, call message_bot with their name and relay the reply. ' +
+        ' When the user asks you to check with them, escalate something, or get their input, call message_bot with their name and relay the reply — call it IMMEDIATELY, never answer for them. ' +
         'Otherwise answer directly from your own role and skills. '
     : '';
   if (ask) tools.push(createQuestionTool(opts, ask));

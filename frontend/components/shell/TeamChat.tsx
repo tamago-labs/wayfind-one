@@ -136,6 +136,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   const [error, setError] = useState<string | null>(null);
   const [outerMissing, setOuterMissing] = useState(false);
   const [botReqs, setBotReqs] = useState<BotReq[]>([]);
+  const [agentNotes, setAgentNotes] = useState<string[]>([]);
   const [questions, setQuestions] = useState<ParkedQuestion[]>([]);
   const [approvals, setApprovals] = useState<ParkedApproval[]>([]);
   const [voiceOpen, setVoiceOpen] = useState(false);
@@ -170,6 +171,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       setDraft('');
       setError(null);
       setBotReqs([]);
+      setAgentNotes([]);
       setQuestions([]);
       setApprovals([]);
       setVoiceOpen(false);
@@ -180,7 +182,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [entries, busy, liveText, botReqs, questions, approvals]);
+  }, [entries, busy, liveText, botReqs, agentNotes, questions, approvals]);
 
   async function sendText(text: string, opts?: { hello?: boolean }) {
     if (!bot || !text.trim() || busy || disabled) return;
@@ -189,6 +191,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     setLiveText('');
     onBusy(bot.id);
     setError(null);
+    setAgentNotes([]);
     // Optimistic user bubble (cloud parity): the message shows instantly
     // with the typing indicator; history reload after done replaces it
     // with the server copy. Hellos skip this — the prompt must never render.
@@ -206,6 +209,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       setDraft('');
       await waitForRun(runId, {
         onChunk: (delta) => setLiveText((prev) => prev + delta),
+        onAgent: (label) => setAgentNotes((prev) => (prev.includes(label) ? prev : [...prev, label])),
         onBotRequest: (r) =>
           setBotReqs((prev) =>
             prev.some((b) => b.bid === r.bid)
@@ -452,6 +456,12 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
                   {r.done === 'created' ? '✓ Created' : 'Declined'}
                 </p>
               )}
+            </div>
+          ))}
+          {agentNotes.map((label) => (
+            <div key={label} className="msg-in flex items-center gap-2 px-1 text-xs font-semibold text-navy/50">
+              <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-bamber" />
+              <span>{label}</span>
             </div>
           ))}
           {questions.map((q, i) => (

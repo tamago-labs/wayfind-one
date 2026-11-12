@@ -40,6 +40,7 @@ export function createMessageBotTool(send: MessageRunner, opts: GuardOpts): Retu
     description:
       'Send a message to another bot on your team and get its reply. ' +
       'Use when the user\'s text @mentions a bot by name, or asks you to consult one. ' +
+      'ALWAYS use this tool for @mentioned bots — never answer for them from your own knowledge and never invent what they would say. ' +
       'The other bot answers in its own role — relay its reply in your own words, keeping any Sources list. ' +
       'Only message bots listed in your team roster, never yourself.',
     parameters: z.object({
