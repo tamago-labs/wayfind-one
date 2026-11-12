@@ -168,17 +168,22 @@ inner loop, then the service routes.
    (latency: a spawned agent round-trip costs seconds per hop with no
    isolation benefit inside a single trust domain). Concretely: no `task`
    fan-out on the escalation path, no sub-agents inside the inner
-   sandbox — single agent + tool loop only. (Whether the outer keeps its
-   existing `task` fan-out for parallel non-sensitive work: open question,
-   see review questions.)
+   sandbox — single agent + tool loop only. **Decided 2026-11-12: strip the
+   outer `task` fan-out entirely (tools-only everywhere).** The inherited
+   depth-4 fan-out goes; parallel work becomes sequential tool calls.
+   Rationale: latency + trace legibility; nothing on the outer path needs
+   capability isolation that tools don't already give.)
 4. **Inner agent-loop (the "delegate until finished" requirement).**
    `packages/   sandbox` gains a bounded loop: prompt → tools → repeat until
    done/failed/budget. Bounds: max N tool steps, read-mostly tool
    allowlist, per-iteration response-signature verification against the
    session preflight, kill + partial-evidence receipt on budget exceed.
    Single agent with tools — no sub-agent fan-out inside (see orchestration
-   pattern above). Without this, escalation returns one-shot answers, not
-   finished tasks.
+   pattern above). **Network (decided 2026-11-12): NEAR API only.**
+   Inner egress allowlisted to NEAR AI endpoints; `exec` stays for local
+   compute, `web`/grounded tools are unavailable inside. Sensitive bytes
+   never share a VM with open internet. Without this loop, escalation
+   returns one-shot answers, not finished tasks.
 2. **Near-AI-only policy, fail closed.** Inner image = today's sandbox
    image (bot runner + `/ai` + preflight + sealed checkpoints) with the
    provider allowlist pinned to `near-ai`. Anything else → 501. Attestation
