@@ -155,15 +155,20 @@ export function saveTeamBot(input: SaveBotInput): TeamBot {
   const prev = getTeamBot(id);
   const now = new Date().toISOString();
   const combo = !input.color || !input.shape ? freeCombo() : null;
+  // Chief always carries the chief role unless the user wrote something
+  // else (mirrors cloud AppShell.saveBotEdits).
+  const isChief = input.isChiefOfStaff ?? prev?.isChiefOfStaff ?? false;
+  let role = input.role !== undefined ? input.role : prev?.role;
+  if (isChief && !(role ?? '').trim()) role = 'Chief of staff';
   const bot = TeamBotSchema.parse({
     v: 1,
     id,
     name: input.name,
-    ...(input.role !== undefined ? { role: input.role } : prev?.role ? { role: prev.role } : {}),
+    ...(role !== undefined ? { role } : {}),
     ...(input.description !== undefined ? { description: input.description } : prev?.description ? { description: prev.description } : {}),
     color: input.color ?? prev?.color ?? combo?.color ?? 'amber',
     shape: input.shape ?? prev?.shape ?? combo?.shape ?? 'blob',
-    isChiefOfStaff: input.isChiefOfStaff ?? prev?.isChiefOfStaff ?? false,
+    isChiefOfStaff: isChief,
     status: input.status ?? prev?.status ?? 'active',
     ...(input.model !== undefined ? { model: input.model } : prev?.model ? { model: prev.model } : {}),
     createdAt: prev?.createdAt ?? now,
