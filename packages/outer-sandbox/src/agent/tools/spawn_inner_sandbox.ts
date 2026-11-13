@@ -19,8 +19,31 @@ import { guarded, type GuardOpts } from '../../core/guard.js';
 import { WORKSPACE_DIR } from '../../core/config.js';
 import { getTeamBot, getTeamConfig, saveEvidence } from '../../team/store.js';
 
-/** The only model an inner sandbox boots (control plane pins it too). */
+/** The only model an inner sandbox boots by default (control plane pins it too). */
 const INNER_MODEL = 'Qwen/Qwen3.8-27B';
+
+/** Selectable inner models (frontend Models picker, localStorage). Must
+ * stay in sync with control-plane CURATED_MODELS — anything else fails
+ * closed there, and the inner allowlist rejects it here. */
+const INNER_MODEL_ALLOWLIST = new Set([
+  INNER_MODEL,
+  'z-ai/glm-5.3-flash',
+  'deepseek-ai/DeepSeek-V4.1-Flash-1017',
+]);
+
+/** Per-thread model override, set from /team/chat's innerModel (which the
+ * frontend sends from localStorage — no database involved). Fresh per chat
+ * call, so a changed picker applies to the next escalation immediately. */
+const threadModels = new Map<string, string>();
+
+export function setThreadInnerModel(ownerId: string | undefined, conversationId: string | undefined, model: string): void {
+  if (!INNER_MODEL_ALLOWLIST.has(model)) return;
+  threadModels.set(`${ownerId ?? 'cli'}/${conversationId ?? 'direct'}`, model);
+}
+
+function innerModelFor(opts: GuardOpts): string {
+  return threadModels.get(sessionKey(opts)) ?? INNER_MODEL;
+}
 
 /** Idle sessions die lazily on next use (plus computer-terminate hook). */
 const SESSION_IDLE_MS = 30 * 60 * 1000;
@@ -299,12 +322,16 @@ async function runEscalation(
   }
 
   // Fresh spawn: init (with brief) + first turn, session stays OPEN.
+  // Model comes from the thread's picker choice (localStorage → chat call),
+  // defaulting to Qwen; the control-plane curated gate + inner allowlist
+  // both enforce it downstream.
+  const model = innerModelFor(opts);
   const spawn = await postJson(api, '/sandboxes', {
     ...(api.computerId ? { computerId: api.computerId } : {}),
     goal: args.goal,
     goalHash,
     ...(stagedIds.length > 0 ? { stagedIds } : {}),
-    model: INNER_MODEL,
+    model,
     ...(args.profile === 'review' || args.profile === 'analysis' ? { profile: args.profile } : {}),
   });
   const spawned = spawn.data as { sandboxId?: string; error?: string; policy?: { securityLevel?: string } };
@@ -325,7 +352,7 @@ async function runEscalation(
   const init = await postJson(api, `/sandboxes/${sid}/message`, {
     ...(api.computerId ? { computerId: api.computerId } : {}),
     sub: 'bot/init',
-    body: { system, model: INNER_MODEL },
+    body: { system, model },
   });
   if (!init.ok) {
     const d = init.data as { error?: string };

@@ -3,17 +3,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { History, LogOut, Pencil, Settings, ShieldCheck } from 'lucide-react';
+import { Cpu, History, LogOut, Pencil, Settings, ShieldCheck } from 'lucide-react';
 import { getCurrentUser, signOut } from 'aws-amplify/auth';
 import { getMyProfile } from '@/lib/data';
 import { requestComputer } from '@/lib/computer';
 import ProfileModal from './ProfileModal';
 import ConnectorsModal from '../app/Connectors/ConnectorsModal';
+import ModelsModal from './ModelsModal';
 
 /**
  * Sidebar bottom (mirrors wayfind-cloud RosterFooter footer):
  * display-name row + avatar/menu popup (Settings, Sandboxes, Activity,
- * sign out) + Connectors pill opening the import modal.
+ * Models, sign out) + Connectors pill opening the import modal.
  */
 export default function SidebarFooter({ email, onSettings, onSandboxes, onActivity }: { email?: string; onSettings: () => void; onSandboxes: () => void; onActivity: () => void }) {
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -21,6 +22,7 @@ export default function SidebarFooter({ email, onSettings, onSandboxes, onActivi
   const [nameOpen, setNameOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [computerReady, setComputerReady] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -143,6 +145,17 @@ export default function SidebarFooter({ email, onSettings, onSandboxes, onActivi
                   <History className="h-4 w-4" strokeWidth={2.2} />
                   Activity
                 </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setModelsOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-semibold text-navy hover:bg-ice"
+                >
+                  <Cpu className="h-4 w-4" strokeWidth={2.2} />
+                  Models
+                </button>
                 <div className="mx-4 my-1 border-t border-navy/10" aria-hidden="true" />
                 <button
                   role="menuitem"
@@ -201,6 +214,7 @@ export default function SidebarFooter({ email, onSettings, onSandboxes, onActivi
         onClose={() => setConnectorsOpen(false)}
         computerReady={computerReady}
       />
+      <ModelsModal open={modelsOpen} onClose={() => setModelsOpen(false)} />
     </div>
   );
 }

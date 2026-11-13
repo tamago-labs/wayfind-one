@@ -18,7 +18,7 @@ import { reportUsage } from './runs/usage.js';
 import { listInstalledSkills, removeSkill, resolveSkillSource, saveSkillPreview, scanLocalSkills, validateSkillPreview } from './agent/skills.js';
 import { listMcpServers, patchMcpServer, removeMcpServer, restartMcpServer, saveMcpServer } from './agent/mcp.js';
 import { transcribeWav, VoiceError } from './voice/transcribe.js';
-import { terminateAllSandboxSessions } from './agent/tools/spawn_inner_sandbox.js';
+import { setThreadInnerModel, terminateAllSandboxSessions } from './agent/tools/spawn_inner_sandbox.js';
 import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listEvidence, listTeamBots, readEvidence, readHistory, saveTeamBot, saveTeamConfig, threadHistoryBlock, toRosterEntry, verifyTeamManifest } from './team/store.js';
 
 /** Browser origin for local dev (Amplify dev server). Loosen only for local. */
@@ -554,9 +554,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return void json(res, 503, { error: 'computer not initialized — POST /hooks/run first' });
     }
     try {
-      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string; hello?: boolean; fileRefs?: Array<{ id?: string; name?: string }> };
+      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; innerModel?: string; apiUrl?: string; ownerId?: string; hello?: boolean; fileRefs?: Array<{ id?: string; name?: string }> };
       if (!body || typeof body.botId !== 'string' || typeof body.text !== 'string' || !body.text.trim()) {
-        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId?, hello?, fileRefs? }' });
+        return void json(res, 400, { error: 'Body must be { botId, text, model?, innerModel?, apiUrl?, ownerId?, hello?, fileRefs? }' });
       }
       const bot = getTeamBot(body.botId);
       if (!bot || bot.status !== 'active') {
@@ -586,6 +586,15 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}${threadHistoryBlock(bot.id)}` +
         (stagedRefs.length > 0 ? ` The user attached ${stagedRefs.length} sealed file(s) (bytes stay sealed — you only see names): ${stagedRefs.map((f) => `${f.name} [id ${f.id}]`).join(', ')}. Sensitive work goes to a disposable attested inner sandbox — call spawn_inner_sandbox with the goal and these fileRefs ids (pass through untouched).` : '');
       const isChief = bot.isChiefOfStaff === true;
+      // Inner-sandbox model choice (frontend Models picker → localStorage).
+      // Allowlist-enforced in the spawn tool; unknown values are ignored.
+      if (typeof body.innerModel === 'string' && body.innerModel) {
+        setThreadInnerModel(
+          typeof body.ownerId === 'string' && body.ownerId ? body.ownerId.slice(0, 128) : undefined,
+          `team/${bot.id}`,
+          body.innerModel.slice(0, 128),
+        );
+      }
       const all = listTeamBots().slice(0, 50);
       const chief = all.find((b) => b.isChiefOfStaff && b.status !== 'paused');
       const roster = (isChief ? all : chief ? [chief] : []).map(toRosterEntry);

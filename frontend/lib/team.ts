@@ -271,8 +271,8 @@ export interface ChatStagedRef {
   id: string;
   name: string;
 }
-
-export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean, opts?: { fileRefs?: ChatStagedRef[] }): Promise<{ runId: string | null; greeted?: boolean }> {
+export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean,
+  opts?: { fileRefs?: ChatStagedRef[]; innerModel?: string }): Promise<{ runId: string | null; greeted?: boolean }> {
   return teamFetch('/team/chat', {
     method: 'POST',
     body: {
@@ -281,6 +281,7 @@ export async function teamChat(botId: string, text: string, ownerId?: string, he
       ...(ownerId ? { ownerId } : {}),
       ...(hello ? { hello: true } : {}),
       ...(opts?.fileRefs && opts.fileRefs.length > 0 ? { fileRefs: opts.fileRefs } : {}),
+      ...(opts?.innerModel ? { innerModel: opts.innerModel } : {}),
     },
   });
 }

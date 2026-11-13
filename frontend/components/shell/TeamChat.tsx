@@ -8,6 +8,7 @@ import Markdown from './Markdown';
 import VoiceModal from './VoiceModal';
 import EvidenceDrawer from './EvidenceDrawer';
 import VerificationDrawer from './VerificationDrawer';
+import { getInnerModel } from '@/lib/models';
 import { toVerificationReports } from '@/lib/verifyReports';
 import { Err, CopyId } from './shared';
 import { stageFiles } from '@/lib/wayfind';
