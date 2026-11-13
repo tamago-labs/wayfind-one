@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { json, readBody } from './http.js';
-import { editTool, readEncTool, readTool, writeTool } from './tools/files.js';
+import { editTool, imageTool, pdfTool, readEncTool, readTool, writeTool } from './tools/files.js';
 import { globTool, grepTool } from './tools/search.js';
 import { syncInTool, syncOutTool } from './tools/sync.js';
 import { botInitTool, botMessageTool, botTranscriptTool, checkpointTool, evidenceTool } from './tools/bot.js';
@@ -19,7 +19,7 @@ mcp.registerTool(execTool.name, { description: execTool.description, inputSchema
   content: [{ type: 'text' as const, text: JSON.stringify(await execTool.run(args)) }],
 }));
 
-for (const t of [readTool, readEncTool, writeTool, editTool, globTool, grepTool, syncInTool, syncOutTool, botInitTool, botMessageTool, botTranscriptTool, checkpointTool, evidenceTool, aiTool] as Array<{
+for (const t of [readTool, readEncTool, writeTool, editTool, pdfTool, imageTool, globTool, grepTool, syncInTool, syncOutTool, botInitTool, botMessageTool, botTranscriptTool, checkpointTool, evidenceTool, aiTool] as Array<{
   name: string;
   description: string;
   schema: z.ZodTypeAny;

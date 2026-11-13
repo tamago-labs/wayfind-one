@@ -16,7 +16,7 @@ import { createBuiltinTools } from './tools/builtin.js';
 import { createQuestionTool, type AskHook } from './tools/question.js';
 import { createBotRequestTool, type BotRequestHook } from './tools/create_bot.js';
 import { createMessageBotTool, rosterDirectory, type MessageRunner, type RosterEntry } from './tools/message_bot.js';
-import { createSpawnInnerSandboxTool } from './tools/spawn_inner_sandbox.js';
+import { createSpawnInnerSandboxTool, createCloseInnerSandboxTool } from './tools/spawn_inner_sandbox.js';
 import { createTaskTool, type RunChild } from './tools/task.js';
 import { createGroundedSearchTool } from './tools/grounded.js';
 import { createClockTool } from './tools/clock.js';
@@ -49,7 +49,7 @@ export interface AgentSelection {
 }
 
 /** Tools unavailable to read-only research subagents. */
-const RESEARCH_DENY = new Set(['write', 'edit', 'shell', 'task', 'question', 'import_skill', 'create_bot', 'message_bot', 'generate_image', 'edit_image', 'install_mcp_server', 'restart_mcp_server', 'schedule_task', 'spawn_inner_sandbox']);
+const RESEARCH_DENY = new Set(['write', 'edit', 'shell', 'task', 'question', 'import_skill', 'create_bot', 'message_bot', 'generate_image', 'edit_image', 'install_mcp_server', 'restart_mcp_server', 'schedule_task', 'spawn_inner_sandbox', 'close_inner_sandbox']);
 
 /** Cross-bot messaging: runner + visible roster. isChief selects the guidance voice. */
 export interface TeamChannel {
@@ -140,10 +140,10 @@ export async function createTriageAgent(
   // the model only ever sees the tool when the hook is wired.
   if (botRequest) tools.push(createBotRequestTool(botRequest));
   if (team) tools.push(createMessageBotTool(team.send, opts));
-  // Escalation stub (Phase 2 builds behavior): sensitive work goes to a
-  // disposable attested inner sandbox via this bounded tool call — never a
-  // handoff, never a sub-agent. Research subagents are denied above.
-  tools.push(createSpawnInnerSandboxTool(opts));
+  // Escalation: bounded tool call to a disposable attested inner sandbox.
+  // Sessions stay open per thread; close_inner_sandbox ends them.
+  // Research subagents are denied above.
+  tools.push(createSpawnInnerSandboxTool(opts), createCloseInnerSandboxTool(opts));
   const names = tools.map((t) => (t as { name: string }).name);
   if (!loggedTools) {
     loggedTools = true;

@@ -36,6 +36,23 @@ export function setAiCredentials(creds: AiCredentials | null): void {
   aiCredentials = creds;
 }
 
+// Meta utility key (PROVIDER_API_KEY), injected per-boot like the NEAR
+// credential. POLICY CARVE-OUT: Meta is a document-parsing utility only
+// (PDF text + image description) — never an inference provider. The
+// near-ai-only inference pin in ai.ts is untouched; anything Meta touches
+// is labeled non-attested in evidence. Rationale: parsing quality
+// (vision/OCR, layout) that offline extraction can't match, and the
+// product already trusts Meta with document bytes on the outer path.
+let metaKey: string | null = null;
+
+export function getMetaKey(): string | null {
+  return metaKey;
+}
+
+export function setMetaKey(key: string | null): void {
+  metaKey = key;
+}
+
 // Per-boot run policy, injected via /hooks/run alongside the bearer.
 // The image ENFORCES this itself (fail closed) — it does not trust the
 // provision path to have checked: no attestation, no run; model outside

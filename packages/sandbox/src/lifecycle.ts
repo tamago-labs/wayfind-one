@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MIN_SESSION_TOKEN_LEN, WORKSPACE_DIR } from './config.js';
 import { json, readBody } from './http.js';
-import { hasSession, setAiCredentials, setRunPolicy, setSandboxProfile, setSessionToken, type AiCredentials, type RunPolicy, type SandboxProfile } from './session.js';
+import { hasSession, setAiCredentials, setMetaKey, setRunPolicy, setSandboxProfile, setSessionToken, type AiCredentials, type RunPolicy, type SandboxProfile } from './session.js';
 
 const RT = '/aws/lambda-microvms/runtime/v1';
 
@@ -50,7 +50,7 @@ export async function handleLifecycle(
     return true;
   }
   if (RUN.has(route)) {
-    const body = (await readBody(req)) as { sessionToken?: unknown; aiCredentials?: unknown; policy?: unknown; profile?: unknown };
+    const body = (await readBody(req)) as { sessionToken?: unknown; aiCredentials?: unknown; policy?: unknown; profile?: unknown; metaKey?: unknown };
     if (typeof body.sessionToken === 'string') {
       if (body.sessionToken.length < MIN_SESSION_TOKEN_LEN) {
         json(res, 400, { error: 'sessionToken must be at least 16 chars' });
@@ -80,6 +80,11 @@ export async function handleLifecycle(
         securityLevel: pol.securityLevel,
         allowedModels: Array.isArray(pol.allowedModels) ? pol.allowedModels.filter((m): m is string => typeof m === 'string') : [],
       });
+    }
+    // Optional Meta utility key for document parsing (PDF/image read via
+    // Meta-direct). Memory-only; inference stays near-ai pinned.
+    if (typeof body.metaKey === 'string' && body.metaKey) {
+      setMetaKey(body.metaKey);
     }
     // Optional boot profile (review = read-only tools, analysis = +exec).
     // Absent means full tools (pre-profile callers). Enforced at the tool

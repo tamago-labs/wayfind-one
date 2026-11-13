@@ -18,7 +18,7 @@ import { reportUsage } from './runs/usage.js';
 import { listInstalledSkills, removeSkill, resolveSkillSource, saveSkillPreview, scanLocalSkills, validateSkillPreview } from './agent/skills.js';
 import { listMcpServers, patchMcpServer, removeMcpServer, restartMcpServer, saveMcpServer } from './agent/mcp.js';
 import { transcribeWav, VoiceError } from './voice/transcribe.js';
-import { inside } from './agent/tools/paths.js';
+import { terminateAllSandboxSessions } from './agent/tools/spawn_inner_sandbox.js';
 import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listTeamBots, readHistory, saveTeamBot, saveTeamConfig, threadHistoryBlock, toRosterEntry, verifyTeamManifest } from './team/store.js';
 
 /** Browser origin for local dev (Amplify dev server). Loosen only for local. */
@@ -155,6 +155,13 @@ async function doTerminate(): Promise<{ ok: boolean }> {
     } catch (err) {
       console.error('[hooks/terminate] final push failed:', err instanceof Error ? err.message : err);
     }
+  }
+  // Close any open inner sandbox sessions (verified kill + receipt each).
+  // Best-effort — the VM idle TTL is the backstop for anything missed.
+  try {
+    await terminateAllSandboxSessions();
+  } catch (err) {
+    console.error('[hooks/terminate] sandbox session close failed:', err instanceof Error ? err.message : err);
   }
   return { ok: true };
 }
@@ -519,9 +526,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return void json(res, 503, { error: 'computer not initialized — POST /hooks/run first' });
     }
     try {
-      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string; hello?: boolean; sandboxMode?: boolean; sandboxProfile?: string; files?: Array<{ path?: string; contentBase64?: string }> };
+      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string; hello?: boolean; fileRefs?: Array<{ id?: string; name?: string }> };
       if (!body || typeof body.botId !== 'string' || typeof body.text !== 'string' || !body.text.trim()) {
-        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId?, hello?, sandboxMode?, sandboxProfile?, files? }' });
+        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId?, hello?, fileRefs? }' });
       }
       const bot = getTeamBot(body.botId);
       if (!bot || bot.status !== 'active') {
@@ -534,40 +541,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         return void json(res, 200, { runId: null, greeted: true });
       }
       if (typeof body.apiUrl === 'string' && body.apiUrl) process.env.WAYFIND_API_URL = body.apiUrl;
-      // Chat attachments: browser sends [{ path, contentBase64 }]; store
-      // jailed in the workspace so the run's attachment flow (images
-      // inline, other files as read_file hints) picks them up. 5 files,
-      // 10MB each — matches the runner's inline caps.
-      const attachments: string[] = [];
-      const incoming = Array.isArray(body.files) ? body.files.slice(0, 5) : [];
+      // Staged file refs (outer-blind): the browser stages bytes
+      // control-plane-side; only opaque ids + names travel here. The outer
+      // VM NEVER sees file bytes — it passes ids to spawn_inner_sandbox.
+      // (Workspace files from sync remain readable via read_file; those are
+      // the user's own disk, already on this computer by their choice.)
+      const stagedRefs: Array<{ id: string; name: string }> = [];
+      const incoming = Array.isArray(body.fileRefs) ? body.fileRefs.slice(0, 5) : [];
       for (const f of incoming) {
-        const rel = typeof f?.path === 'string' ? f.path.replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.').join('/') : '';
-        if (!rel || rel === '.wayfind' || rel.startsWith('.wayfind/') || typeof f?.contentBase64 !== 'string') {
-          return void json(res, 400, { error: `bad attachment path: ${typeof f?.path === 'string' ? f.path.slice(0, 64) : '?'}` });
+        if (typeof f?.id !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(f.id)) {
+          return void json(res, 400, { error: 'fileRefs: each needs { id, name } with an opaque staged id' });
         }
-        let abs: string;
-        try {
-          abs = inside(rel);
-        } catch {
-          return void json(res, 400, { error: `attachment escapes workspace: ${rel.slice(0, 64)}` });
-        }
-        let buf: Buffer;
-        try {
-          buf = Buffer.from(f.contentBase64, 'base64');
-        } catch {
-          return void json(res, 400, { error: `attachment not base64: ${rel.slice(0, 64)}` });
-        }
-        if (buf.length === 0 || buf.length > 10 * 1024 * 1024) {
-          return void json(res, 413, { error: `attachment ${rel.slice(0, 64)}: empty or over 10MB` });
-        }
-        mkdirSync(dirname(abs), { recursive: true });
-        writeFileSync(abs, buf);
-        attachments.push(rel);
+        const name = typeof f?.name === 'string' ? f.name.slice(0, 128) : f.id;
+        stagedRefs.push({ id: f.id, name });
       }
-      const sandboxProfile = body.sandboxProfile === 'review' || body.sandboxProfile === 'analysis' ? body.sandboxProfile : undefined;
       const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}${threadHistoryBlock(bot.id)}` +
-        (attachments.length > 0 ? ` The user attached ${attachments.length} file(s): ${attachments.join(', ')}.` : '') +
-        (body.sandboxMode === true ? ` The user toggled sandbox mode: run this task in a disposable attested inner sandbox — call spawn_inner_sandbox with the goal and the attached files${sandboxProfile ? ` (profile: ${sandboxProfile})` : ''}.` : '');
+        (stagedRefs.length > 0 ? ` The user attached ${stagedRefs.length} sealed file(s) (bytes stay sealed — you only see names): ${stagedRefs.map((f) => `${f.name} [id ${f.id}]`).join(', ')}. Sensitive work goes to a disposable attested inner sandbox — call spawn_inner_sandbox with the goal and these fileRefs ids (pass through untouched).` : '');
       const isChief = bot.isChiefOfStaff === true;
       const all = listTeamBots().slice(0, 50);
       const chief = all.find((b) => b.isChiefOfStaff && b.status !== 'paused');
@@ -578,7 +567,6 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         teamBotId: bot.id,
         ...(body.hello === true ? { hello: true as const } : {}),
         system,
-        ...(attachments.length > 0 ? { attachments } : {}),
         allowedSkills: [],
         allowedMcp: [],
         canManageBots: isChief,

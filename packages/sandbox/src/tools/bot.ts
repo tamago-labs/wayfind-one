@@ -10,6 +10,7 @@ import { MAX_TRANSCRIPT_ENTRIES, WORKSPACE_DIR } from '../config.js';
 import { HttpError } from '../http.js';
 import { getAiCredentials, getRunPolicy, getSandboxProfile, getSessionToken } from '../session.js';
 import { deriveWorkspaceKey, sealFile, sha256Hex } from './crypto.js';
+import { clearParseLog, parseLog } from './files.js';
 import { runAi } from './ai.js';
 import {
   preflightAttestation,
@@ -70,8 +71,7 @@ export const botInitTool = {
     model: z.string().optional(),
     provider: z.string().optional(),
   }),
-  run: async (args: { system?: string; model?: string; provider?: string }) => {
-    botConfig = {
+  run: async (args: { system?: string; model?: string; provider?: string }) => {    botConfig = {
       ...(typeof args.system === 'string' ? { system: args.system } : {}),
       ...(typeof args.model === 'string' ? { model: args.model } : {}),
       ...(typeof args.provider === 'string' ? { provider: args.provider } : {}),
@@ -80,6 +80,7 @@ export const botInitTool = {
     checkpointSeq = 0;
     verifications = [];
     preflight = null;
+    clearParseLog();
     // Attestation preflight once per session for NEAR providers (~2s).
     // Standard-tier providers skip it: nothing to check against.
     const creds = getAiCredentials();
@@ -130,10 +131,15 @@ export const botInitTool = {
 
 // Workspace context: the point of "ask about your files" is that the bot
 // can actually see them. Text files under the workspace are prepended to
-// every prompt (fresh each turn, binary skipped). Caps keep prompts small.
+// every prompt (fresh each turn, binary skipped). PDFs (staged statements)
+// are text-extracted in-VM via pdf-parse — fully offline, no key, no data
+// leaves the sandbox (this is why the inner image doesn't use the Meta
+// read path: that needs PROVIDER_API_KEY, which must never enter the
+// inner VM). Caps keep prompts small.
 const MAX_CTX_FILES = 50;
 const MAX_CTX_FILE_CHARS = 8_000;
 const MAX_CTX_TOTAL_CHARS = 16_000;
+const MAX_CTX_PDF_CHARS = 12_000;
 
 function isTextBuffer(buf: Buffer): boolean {
   const head = buf.subarray(0, Math.min(buf.length, 8000));
@@ -143,10 +149,20 @@ function isTextBuffer(buf: Buffer): boolean {
   return true;
 }
 
-function readWorkspaceContext(): string {
+async function mediaText(rel: string): Promise<string | null> {
+  const { metaReadFile } = await import('./files.js');
+  try {
+    const out = await metaReadFile(rel);
+    return out ? out.text.slice(0, MAX_CTX_PDF_CHARS) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readWorkspaceContext(): Promise<string> {
   const collected: Array<{ rel: string; text: string }> = [];
   let total = 0;
-  const walk = (dir: string, relBase: string): void => {
+  const walk = async (dir: string, relBase: string): Promise<void> => {
     if (collected.length >= MAX_CTX_FILES || total >= MAX_CTX_TOTAL_CHARS) return;
     let entries;
     try {
@@ -161,11 +177,20 @@ function readWorkspaceContext(): string {
       const rel = relBase ? `${relBase}/${e.name}` : e.name;
       try {
         if (e.isDirectory()) {
-          walk(abs, rel);
+          await walk(abs, rel);
         } else if (e.isFile()) {
           const st = statSync(abs);
           if (st.size > 1024 * 1024) continue;
           const buf = readFileSync(abs);
+          if (/\.pdf$/i.test(e.name) || /\.(png|jpe?g|gif|webp)$/i.test(e.name)) {
+            // Staged documents/images: Meta parsing utility (non-attested,
+            // recorded in the parse log). Unreadable → skip silently.
+            const text = await mediaText(rel);
+            if (!text) continue;
+            collected.push({ rel, text });
+            total += text.length;
+            continue;
+          }
           if (!isTextBuffer(buf)) continue;
           const text = buf.toString('utf8').slice(0, MAX_CTX_FILE_CHARS);
           collected.push({ rel, text });
@@ -176,7 +201,7 @@ function readWorkspaceContext(): string {
       }
     }
   };
-  walk(WORKSPACE_DIR, '');
+  await walk(WORKSPACE_DIR, '');
   if (collected.length === 0) return '';
   const parts = collected.map((f) => `--- ${f.rel} ---\n${f.text}`);
   return `\n\nWorkspace files (attached by the user, read live from the sandbox):\n${parts.join('\n')}`;
@@ -191,7 +216,7 @@ export const botMessageTool = {
     if (typeof args.content !== 'string' || !args.content) throw new HttpError(400, 'content is required');
     if (transcript.length >= MAX_TRANSCRIPT_ENTRIES) throw new HttpError(413, 'transcript full — terminate and start a new conversation');
     appendEntry('user', args.content);
-    const workspaceCtx = readWorkspaceContext();
+    const workspaceCtx = await readWorkspaceContext();
     const rendered = [
       ...(botConfig.system ? [`system: ${botConfig.system}`] : []),
       ...transcript.map((e) => `${e.role}: ${e.content}`),
@@ -264,6 +289,7 @@ export const evidenceTool = {
   run: async () => ({
     policy: getRunPolicy(),
     profile: getSandboxProfile(),
+    parsing: [...parseLog],
     preflight: preflight
       ? {
           at: preflight.at,

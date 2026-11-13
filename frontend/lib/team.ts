@@ -31,9 +31,6 @@ async function teamFetch<T>(path: string, init?: { method?: string; body?: unkno
 export type BotColor = 'amber' | 'moss' | 'lagoon' | 'ash' | 'blue' | 'coral' | 'grape';
 export type BotShape = 'blob' | 'circle' | 'squircle' | 'pebble';
 
-export type SandboxTarget = 'direct' | 'team';
-export type SandboxProfile = 'review' | 'analysis';
-
 export interface TeamBot {
   id: string;
   name: string;
@@ -44,8 +41,6 @@ export interface TeamBot {
   isChiefOfStaff?: boolean | null;
   status?: string | null;
   model?: string | null;
-  sandboxTarget?: SandboxTarget | null;
-  sandboxProfile?: SandboxProfile | null;
 }
 
 export interface HistoryEntry {
@@ -67,8 +62,6 @@ export async function saveTeamBot(input: {
   color?: BotColor;
   shape?: BotShape;
   isChiefOfStaff?: boolean;
-  sandboxTarget?: SandboxTarget;
-  sandboxProfile?: SandboxProfile;
 }): Promise<TeamBot> {
   const out = await teamFetch<{ bot: TeamBot }>('/team/bots', { method: 'POST', body: input });
   return out.bot;
@@ -254,12 +247,12 @@ export async function teamHistory(botId: string): Promise<{ entries: HistoryEntr
   return teamFetch(`/team/history/${botId}`);
 }
 
-export interface ChatAttachment {
-  path: string;
-  contentBase64: string;
+export interface ChatStagedRef {
+  id: string;
+  name: string;
 }
 
-export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean, opts?: { files?: ChatAttachment[]; sandboxMode?: boolean; sandboxProfile?: SandboxProfile }): Promise<{ runId: string | null; greeted?: boolean }> {
+export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean, opts?: { fileRefs?: ChatStagedRef[] }): Promise<{ runId: string | null; greeted?: boolean }> {
   return teamFetch('/team/chat', {
     method: 'POST',
     body: {
@@ -267,9 +260,7 @@ export async function teamChat(botId: string, text: string, ownerId?: string, he
       text,
       ...(ownerId ? { ownerId } : {}),
       ...(hello ? { hello: true } : {}),
-      ...(opts?.files && opts.files.length > 0 ? { files: opts.files } : {}),
-      ...(opts?.sandboxMode ? { sandboxMode: true } : {}),
-      ...(opts?.sandboxProfile ? { sandboxProfile: opts.sandboxProfile } : {}),
+      ...(opts?.fileRefs && opts.fileRefs.length > 0 ? { fileRefs: opts.fileRefs } : {}),
     },
   });
 }
