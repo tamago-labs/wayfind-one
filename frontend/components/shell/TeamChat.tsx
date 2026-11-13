@@ -440,6 +440,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     try {
       const { runId } = await teamChat(bot.id, text.trim() || '(files attached — see attachment list)', undefined, opts?.hello, {
         ...(opts?.fileRefs && opts.fileRefs.length > 0 ? { fileRefs: opts.fileRefs } : {}),
+        innerModel: getInnerModel(),
       });
       if (!runId) {
         // Server says this bot was already greeted — just show its history.

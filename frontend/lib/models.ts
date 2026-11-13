@@ -5,8 +5,8 @@ export interface InnerModel {
   id: string;
   label: string;
   desc: string;
-  /** Qwen has passing attestation proof runs; others are checked live. */
-  badge: 'verified' | 'pilot';
+  /** All three are NEAR-verifiable (TEE attestation); kept for future states. */
+  badge: 'verified';
 }
 
 export const INNER_MODELS: InnerModel[] = [
@@ -20,13 +20,13 @@ export const INNER_MODELS: InnerModel[] = [
     id: 'z-ai/glm-5.3-flash',
     label: 'GLM 5.3 Flash',
     desc: 'Zhipu fast model via NEAR AI. Attestation checked live at run time.',
-    badge: 'pilot',
+    badge: 'verified',
   },
   {
     id: 'deepseek-ai/DeepSeek-V4.1-Flash-1017',
     label: 'DeepSeek V4.1 Flash',
     desc: 'DeepSeek fast model via NEAR AI. Attestation checked live at run time.',
-    badge: 'pilot',
+    badge: 'verified',
   },
 ];
 

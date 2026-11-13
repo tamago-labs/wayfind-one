@@ -5,6 +5,7 @@ import { Cpu, Boxes, Trash2, X } from 'lucide-react';
 import Mascot from '@/components/Mascot';
 import type { BotEdits, TeamBot } from '@/lib/team';
 import { listSandboxes, terminateSandbox, type SandboxLive } from '@/lib/wayfind';
+import { getInnerModel, INNER_MODELS } from '@/lib/models';
 import BotEditModal from './BotEditModal';
 import DeleteBotModal from './DeleteBotModal';
 
@@ -18,6 +19,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function ComputerTab({ bot }: { bot: TeamBot }) {
+  // Read at render: the parent re-renders whenever the drawer opens, so a
+  // model picked in the profile menu shows up on next open.
+  const sandboxModel = getInnerModel();
+  const sandboxBadge = INNER_MODELS.find((m) => m.id === sandboxModel)?.badge;
   return (
     <div className="space-y-2 text-sm">
       <Row label="Bot ID">
@@ -40,7 +45,18 @@ function ComputerTab({ bot }: { bot: TeamBot }) {
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-navy/50">Sandbox model</dt>
-            <dd className="font-mono text-xs text-navy">Qwen/Qwen3.8-27B</dd>
+            <dd className="min-w-0 text-right">
+              <span className="break-all font-mono text-xs text-navy" title={sandboxModel}>{sandboxModel}</span>
+              {sandboxBadge && (
+                <span className="ml-1.5 inline-block rounded-full bg-blagoon/15 px-2 py-0.5 align-middle text-[10px] font-bold text-[#12706f]">
+                  {sandboxBadge === 'verified' ? 'Verified' : 'Pilot'}
+                </span>
+              )}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-navy/50">Applies to</dt>
+            <dd className="text-right font-semibold text-navy">Next sandbox (change in Models)</dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-navy/50">Checks</dt>

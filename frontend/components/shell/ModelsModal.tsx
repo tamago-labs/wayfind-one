@@ -96,9 +96,6 @@ export default function ModelsModal({ open, onClose }: { open: boolean; onClose:
                   </button>
                 );
               })}
-              <p className="text-xs text-ink">
-                If Policy restricts models, add the id there too — otherwise the run fails closed.
-              </p>
             </div>
           </motion.div>
         </motion.div>
