@@ -1,5 +1,5 @@
 // wayfind verify — check a v0 execution receipt offline.
-// Usage: wayfind verify <receipt.json | conversationId>
+// Usage: wayfind verify <receipt.json | conversationId | microvm-...>
 // A file is read locally (fully offline); an id is fetched first, then
 // checked locally. Unsigned v0 ("observed") receipts: shape, chain order,
 // internal consistency. Signed receipts ("signed"): all of the above PLUS
@@ -10,7 +10,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { apiBase } from '../auth/client.js';
-import { listConversations, loadToken } from '../sandbox/api.js';
+import { fetchInnerEvidence, listConversations, loadToken } from '../sandbox/api.js';
 
 /** Canonical JSON — must match the backend byte-for-byte (sorted keys). */
 export function canonicalize(value) {
@@ -76,7 +76,9 @@ export function checkReceipt(r) {
   results.push(check('VM cleanup verified at terminate', r?.cleanup?.vmTerminated === true, String(r?.cleanup?.vmTerminated)));
   // Inference evidence (present when the agent ran attestation checks).
   // Absent on older/standard-tier receipts — noted, not failed.
-  const inf = r?.inference ?? null;
+  // Closeout binds it nested (inference.botEvidence); unwrap with a flat
+  // fallback so older receipts keep checking.
+  const inf = r?.inference?.botEvidence ?? r?.inference ?? null;
   if (inf) {
     const msgs = Array.isArray(inf.messages) ? inf.messages : [];
     const checked = msgs.filter((m) => m?.checked);
@@ -96,7 +98,7 @@ export function checkReceipt(r) {
 export async function verify(rawArgs) {
   const [src] = rawArgs;
   if (!src || src === '--help') {
-    console.error('Usage: wayfind verify <receipt.json | conversationId>');
+    console.error('Usage: wayfind verify <receipt.json | conversationId | microvm-...>');
     process.exit(1);
   }
   let receipt = null;
@@ -113,18 +115,30 @@ export async function verify(rawArgs) {
   }
   if (!receipt) {
     const token = await loadToken();
-    const list = await listConversations(token);
-    const conv = list.find((c) => c.conversationId === src);
-    if (!conv) {
-      console.error('No such file or conversation id.');
-      process.exit(1);
+    if (/^microvm-[A-Za-z0-9-]+$/.test(src)) {
+      // Inner sandbox run: receipt lives in the outer's stored evidence
+      // bundle (same id as chat and the Sessions panel).
+      const ev = await fetchInnerEvidence(token, src);
+      receipt = ev?.receipt ?? null;
+      if (!receipt) {
+        console.error('No stored evidence for that sandbox yet — close the session first.');
+        process.exit(1);
+      }
+      console.log(`Receipt: inner sandbox ${src} (fetched, then checked locally)`);
+    } else {
+      const list = await listConversations(token);
+      const conv = list.find((c) => c.conversationId === src);
+      if (!conv) {
+        console.error('No such file, conversation id, or sandbox id.');
+        process.exit(1);
+      }
+      if (!conv.receipt) {
+        console.error('Conversation has no receipt yet (only closed conversations carry one).');
+        process.exit(1);
+      }
+      receipt = conv.receipt;
+      console.log(`Receipt: conversation ${src} (fetched, then checked locally)`);
     }
-    if (!conv.receipt) {
-      console.error('Conversation has no receipt yet (only closed conversations carry one).');
-      process.exit(1);
-    }
-    receipt = conv.receipt;
-    console.log(`Receipt: conversation ${src} (fetched, then checked locally)`);
   }
   let { ok } = checkReceipt(receipt);
   // Offline Ed25519 check for signed receipts. Unsigned (observed-only)

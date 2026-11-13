@@ -54,10 +54,17 @@ export function checkReceipt(r: ReceiptV0 | null | undefined): { ok: boolean; ch
   } else {
     checks.push({ name: 'control-plane signature', pass: true, detail: 'absent — receipt is observed-only' });
   }
-  const inf = (r as unknown as { inference?: unknown })?.inference as {
+  // Closeout binds evidence nested (inference.botEvidence); unwrap with a
+  // flat fallback so older receipts keep checking.
+  const rawInf = (r as unknown as { inference?: unknown })?.inference as {
+    botEvidence?: {
+      preflight?: { nonceEchoed?: boolean; modelTee?: string[]; nodes?: number; nvidia?: { overall?: boolean; nonceMatch?: boolean; gpus?: number } };
+      messages?: Array<{ checked?: boolean; valid?: boolean }>;
+    };
     preflight?: { nonceEchoed?: boolean; modelTee?: string[]; nodes?: number; nvidia?: { overall?: boolean; nonceMatch?: boolean; gpus?: number } };
     messages?: Array<{ checked?: boolean; valid?: boolean }>;
   } | null;
+  const inf = rawInf?.botEvidence ?? rawInf;
   if (inf) {
     const msgs = Array.isArray(inf.messages) ? inf.messages : [];
     const checked = msgs.filter((m) => m?.checked);

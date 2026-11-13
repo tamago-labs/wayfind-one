@@ -79,3 +79,33 @@ export async function relay(token, session, sub, body) {
   if (!res.ok) throw new Error(data?.error ?? `sandbox ${sub} failed (${res.status})`);
   return data;
 }
+
+/** Control-plane proxy to the caller's ONE outer computer (same path the
+ * website uses). kind=one_outer routes past any classic computer. */
+async function computerProxy(token, path) {
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`${apiBase()}/computer/proxy${path}${sep}kind=one_outer`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? `request failed (${res.status})`);
+  return data;
+}
+
+/** Live inner sandbox sessions on the outer computer. */
+export async function listInnerSandboxes(token) {
+  const out = await computerProxy(token, '/sandboxes');
+  return out.sandboxes ?? [];
+}
+
+/** Closed-run evidence summaries (task titles, no transcripts). */
+export async function listInnerEvidence(token) {
+  const out = await computerProxy(token, '/team/evidence');
+  return out.evidence ?? [];
+}
+
+/** Full stored evidence bundle for one closed sandbox (receipt + transcript). */
+export async function fetchInnerEvidence(token, sandboxId) {
+  const out = await computerProxy(token, `/team/evidence/${encodeURIComponent(sandboxId)}`);
+  return out.evidence ?? null;
+}

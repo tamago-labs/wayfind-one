@@ -4,6 +4,7 @@ import { login } from '../src/commands/login.js';
 import { logout } from '../src/commands/logout.js';
 import { start } from '../src/commands/start.js';
 import { run } from '../src/commands/run.js';
+import { sandboxes } from '../src/commands/sandboxes.js';
 import { status } from '../src/commands/status.js';
 import { stop } from '../src/commands/stop.js';
 import { exportFiles } from '../src/commands/export.js';
@@ -22,6 +23,8 @@ if (cmd === 'login') {
   await logout();
 } else if (cmd === 'run') {
   await run(rest);
+} else if (cmd === 'sandboxes') {
+  await sandboxes(rest);
 } else if (cmd === 'status') {
   await status();
 } else if (cmd === 'stop') {
@@ -44,6 +47,6 @@ if (cmd === 'login') {
   await start();
 } else {
   console.error(`Unknown command: ${cmd}`);
-  console.error('Usage: wayfind [login|logout|run|status|stop|export|verify|chat|policy|audit|evidence|image-trust|start]');
+  console.error('Usage: wayfind [login|logout|run|sandboxes|status|stop|export|verify|chat|policy|audit|evidence|image-trust|start]');
   process.exit(1);
 }
