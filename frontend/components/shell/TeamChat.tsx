@@ -48,7 +48,7 @@ function fmtElapsed(ms: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function EscalationTimer({ since }: { since: number }) {
+function EscalationTimer({ since, onDismiss }: { since: number; onDismiss: () => void }) {
   const secs = Math.floor((Date.now() - since) / 1000);
   const stage = secs < 150 ? 0 : secs < 210 ? 1 : 2;
   const stages = ['Provisioning disposable VM', 'Checking attestation', 'Running + verifying'];
@@ -68,7 +68,12 @@ function EscalationTimer({ since }: { since: number }) {
           </span>
         ))}
       </div>
-      <p className="mt-1 text-[11px] text-ink">Typical run 3–6 min — stages are typical timings, not live progress.</p>
+      <p className="mt-1 text-[11px] text-ink">
+        Typical run 3–6 min — stages are typical timings, not live progress.{' '}
+        <button type="button" onClick={onDismiss} className="font-semibold text-cta hover:underline">
+          Dismiss
+        </button>
+      </p>
     </div>
   );
 }
@@ -277,14 +282,18 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   // POST /sandboxes/stage (control plane) — bytes never touch the outer VM.
   const [attached, setAttached] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  // Escalation timer: set when a spawn_inner_sandbox approval is granted;
-  // cleared when fresh assistant content arrives. Typical run is minutes.
+  // Escalation timer: set when a spawn_inner_sandbox approval is granted.
+  // Shows regardless of interim chatter — it clears only on: result block
+  // delivered, new user message, manual dismiss, 20-min timeout.
   const [escalatedAt, setEscalatedAt] = useState<number | null>(null);
   const escalatedBaseline = useRef(0);
   const [, setTick] = useState(0);
   useEffect(() => {
     if (escalatedAt === null) return;
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    const t = setInterval(() => {
+      setTick((n) => n + 1);
+      if (Date.now() - (escalatedAt ?? 0) > 20 * 60 * 1000) setEscalatedAt(null);
+    }, 1000);
     return () => clearInterval(t);
   }, [escalatedAt]);
   // History for the selected bot has loaded at least once — the hello
@@ -295,10 +304,10 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   // renders token-by-token while polling, not all-at-once at done).
   const [liveText, setLiveText] = useState('');
   useEffect(() => {
-    if (escalatedAt !== null && (liveText || entries.length > escalatedBaseline.current)) {
-      setEscalatedAt(null);
-    }
-  }, [escalatedAt, liveText, entries.length]);
+    if (escalatedAt === null) return;
+    const haystack = liveText + entries.slice(escalatedBaseline.current).map((e) => e.content).join('\n');
+    if (haystack.includes('</inner_result>')) setEscalatedAt(null);
+  }, [escalatedAt, liveText, entries]);
   const bottomRef = useRef<HTMLDivElement>(null);
   // History length mirror: parked cards stamp their arrival position so
   // they render interleaved chronologically instead of after all history.
@@ -453,6 +462,8 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
 
   async function send() {
     if (!bot || (!draft.trim() && attached.length === 0) || busy || disabled) return;
+    // New user message ends any escalation wait.
+    setEscalatedAt(null);
     const files = attached.length > 0 ? [...attached] : [];
     const text = draft;
     if (files.length === 0) {
@@ -541,7 +552,10 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     if (!a || a.done) return;
     setApprovals((prev) => prev.map((x, i) => (i === index ? { ...x, done: decision } : x)));
     if ((decision === 'approve' || decision === 'approve-all') && a.permission === 'spawn_inner_sandbox') {
+      // Fresh wait begins at approval: drop any pre-tool chatter so the
+      // timer (not stale text) represents the run.
       escalatedBaseline.current = entries.length;
+      setLiveText('');
       setEscalatedAt(Date.now());
     }
     try {
@@ -762,23 +776,22 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
               </>
             );
           })()}
+          {escalatedAt !== null && (
+            <EscalationTimer since={escalatedAt} onDismiss={() => setEscalatedAt(null)} />
+          )}
           {busy && liveText && (
             <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
               <Markdown text={liveText} />
             </div>
           )}
-          {busy && !liveText && (
-            escalatedAt !== null ? (
-              <EscalationTimer since={escalatedAt} />
-            ) : (
-              <div className="w-fit rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm">
-                <span className="typing-dots flex gap-1">
-                  <i className="h-2 w-2 rounded-full bg-slate-400" />
-                  <i className="h-2 w-2 rounded-full bg-slate-400" />
-                  <i className="h-2 w-2 rounded-full bg-slate-400" />
-                </span>
-              </div>
-            )
+          {busy && !liveText && escalatedAt === null && (
+            <div className="w-fit rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm">
+              <span className="typing-dots flex gap-1">
+                <i className="h-2 w-2 rounded-full bg-slate-400" />
+                <i className="h-2 w-2 rounded-full bg-slate-400" />
+                <i className="h-2 w-2 rounded-full bg-slate-400" />
+              </span>
+            </div>
           )}
           {agentNotes.map((label) => (
             <div key={label} className="msg-in flex items-center gap-2 px-1 text-xs font-semibold text-navy/50">
