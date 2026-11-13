@@ -1,8 +1,9 @@
 import type { ReceiptV0 } from './wayfind';
 
 // Port of the CLI verifier (src/commands/verify.js) for the website panel.
-// v0 receipts are UNSIGNED (class "observed"): shape, chain order, internal
-// consistency — not authenticity. Signature checks land in Phase 2.
+// Two receipt kinds: classic conversations (checkpointManifest chain) and
+// inner sandboxes (single sealed finalSnapshot). Shape checks adapt;
+// authenticity always comes from the Ed25519 signature check.
 export interface ReceiptCheck {
   name: string;
   pass: boolean;
@@ -19,22 +20,30 @@ export function checkReceipt(r: ReceiptV0 | null | undefined): { ok: boolean; ch
   ok &&= push('version is wayfind-receipt/v0', r?.version === 'wayfind-receipt/v0', String(r?.version));
   const signed = r?.class === 'signed';
   ok &&= push('class is observed or signed', r?.class === 'observed' || signed, String(r?.class));
-  const required = ['conversationId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt'];
+  const isInner = (r as { kind?: string } | null | undefined)?.kind === 'inner-sandbox';
+  const required = isInner
+    ? ['sandboxId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt']
+    : ['conversationId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt'];
   const missing = required.filter((k) => (r as unknown as Record<string, unknown>)?.[k] == null);
   ok &&= push('required fields present', missing.length === 0, missing.length ? `missing: ${missing.join(',')}` : 'all present');
-  const manifest = Array.isArray(r?.checkpointManifest) ? r.checkpointManifest : null;
-  let chainOk = manifest !== null;
-  if (manifest) {
-    for (const [i, e] of manifest.entries()) {
-      const m = typeof e === 'string' ? e.match(/^(\d+):([0-9a-f]{64})$/i) : null;
-      if (!m || Number(m[1]) !== i) {
-        chainOk = false;
-        break;
+  if (isInner) {
+    const snap = (r as { finalSnapshot?: { recorded?: boolean; sha256?: string } | null })?.finalSnapshot;
+    const snapOk = snap?.recorded === true && typeof snap.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(snap.sha256);
+    ok &&= push('final snapshot sealed at close', !!snapOk, snap?.recorded ? `sha256 ${String(snap.sha256).slice(0, 12)}…` : 'not recorded');
+  } else {
+    const manifest = Array.isArray(r?.checkpointManifest) ? r.checkpointManifest : null;
+    let chainOk = manifest !== null;
+    if (manifest) {
+      for (const [i, e] of manifest.entries()) {
+        const m = typeof e === 'string' ? e.match(/^(\d+):([0-9a-f]{64})$/i) : null;
+        if (!m || Number(m[1]) !== i) {
+          chainOk = false;
+          break;
+        }
       }
     }
-  }
-  ok &&= push('checkpoint manifest chained from seq 0', chainOk, manifest ? `${manifest.length} entries` : 'not an array');
-  let timeOk = false;
+    ok &&= push('checkpoint manifest chained from seq 0', chainOk, manifest ? `${manifest.length} entries` : 'not an array');
+  }  let timeOk = false;
   if (r?.provisionedAt && r?.terminatedAt) {
     timeOk = new Date(r.provisionedAt).getTime() < new Date(r.terminatedAt).getTime();
   }

@@ -44,21 +44,30 @@ export function checkReceipt(r) {
   results.push(check('version is wayfind-receipt/v0', r?.version === 'wayfind-receipt/v0', String(r?.version)));
   const signed = r?.class === 'signed';
   results.push(check('class is observed or signed', r?.class === 'observed' || signed, String(r?.class)));
-  const required = ['conversationId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt'];
+  const isInner = r?.kind === 'inner-sandbox';
+  const required = isInner
+    ? ['sandboxId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt']
+    : ['conversationId', 'model', 'provider', 'securityLevel', 'provisionedAt', 'terminatedAt'];
   const missing = required.filter((k) => r?.[k] == null);
   results.push(check('required fields present', missing.length === 0, missing.length ? `missing: ${missing.join(',')}` : `${required.length}/${required.length}`));
-  const manifest = Array.isArray(r?.checkpointManifest) ? r.checkpointManifest : null;
-  let chainOk = manifest !== null;
-  if (manifest) {
-    for (const [i, e] of manifest.entries()) {
-      const m = typeof e === 'string' ? e.match(/^(\d+):([0-9a-f]{64})$/i) : null;
-      if (!m || Number(m[1]) !== i) {
-        chainOk = false;
-        break;
+  if (isInner) {
+    const snap = r?.finalSnapshot;
+    const snapOk = snap?.recorded === true && typeof snap.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(snap.sha256);
+    results.push(check('final snapshot sealed at close', snapOk, snap?.recorded ? `sha256 ${String(snap.sha256).slice(0, 12)}…` : 'not recorded'));
+  } else {
+    const manifest = Array.isArray(r?.checkpointManifest) ? r.checkpointManifest : null;
+    let chainOk = manifest !== null;
+    if (manifest) {
+      for (const [i, e] of manifest.entries()) {
+        const m = typeof e === 'string' ? e.match(/^(\d+):([0-9a-f]{64})$/i) : null;
+        if (!m || Number(m[1]) !== i) {
+          chainOk = false;
+          break;
+        }
       }
     }
+    results.push(check('checkpoint manifest chained from seq 0', chainOk, manifest ? `${manifest.length} entries` : 'not an array'));
   }
-  results.push(check('checkpoint manifest chained from seq 0', chainOk, manifest ? `${manifest.length} entries` : 'not an array'));
   let timeOk = false;
   if (r?.provisionedAt && r?.terminatedAt) {
     timeOk = new Date(r.provisionedAt).getTime() < new Date(r.terminatedAt).getTime();

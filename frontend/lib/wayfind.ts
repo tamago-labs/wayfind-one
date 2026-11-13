@@ -58,14 +58,20 @@ export interface ConversationMeta {
 export interface ReceiptV0 {
   version: string;
   class: string;
-  conversationId: string;
-  botId: string | null;
-  botBundleHash: string | null;
-  workspaceHash: string | null;
+  kind?: string;
+  conversationId?: string | null;
+  sandboxId?: string | null;
+  parentComputerId?: string | null;
+  goalHash?: string | null;
+  policy?: string | null;
+  botId?: string | null;
+  botBundleHash?: string | null;
+  workspaceHash?: string | null;
   model: string | null;
   provider: string | null;
   securityLevel: string | null;
-  checkpointManifest: string[];
+  checkpointManifest?: string[];
+  finalSnapshot?: { recorded?: boolean; seq?: number; sha256?: string; error?: string } | null;
   provisionedAt: string | null;
   terminatedAt: string | null;
   cleanup?: { vmTerminated?: boolean };

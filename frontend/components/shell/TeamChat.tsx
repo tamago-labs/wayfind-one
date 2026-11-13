@@ -1,11 +1,13 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Mic, PanelRight, Paperclip, Send, ShieldCheck, X } from 'lucide-react';
 import Mascot from '@/components/Mascot';
 import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun, type ChatStagedRef } from '@/lib/team';
 import Markdown from './Markdown';
 import VoiceModal from './VoiceModal';
+import VerificationWidget from '@/components/VerificationWidget';
+import { toVerificationReports } from '@/lib/verifyReports';
 import { Err, CopyId } from './shared';
 import { stageFiles } from '@/lib/wayfind';
 import { teamEvidence } from '@/lib/team';
@@ -85,6 +87,7 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showWidget, setShowWidget] = useState(false);
   const toggle = async () => {
     if (open) {
       setOpen(false);
@@ -103,7 +106,15 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
       setLoading(false);
     }
   };
-  const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string } } | undefined;
+  const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string }; model?: string } | undefined;
+  const evidenceModel = typeof receipt?.model === 'string' && receipt.model ? receipt.model : 'Qwen/Qwen3.8-27B';
+  const widgetReports = useMemo(() => {
+    if (!open || !bundle) return null;
+    const ev = (bundle as { evidence?: unknown }).evidence as {
+      botEvidence?: { preflight?: { nonce?: string; model?: string; nodes?: number; nonceEchoed?: boolean; modelTee?: string[]; gateway?: string[]; nvidia?: { overall?: boolean; nonceMatch?: boolean | null; gpus?: number } | null }; messages?: Array<{ seq?: number; chatId?: string | null; checked?: boolean; kind?: string; valid?: boolean; signer?: string | null; signedText?: string | null; signature?: string | null }> };
+    } | undefined;
+    return toVerificationReports(evidenceModel, ev?.botEvidence ?? null);
+  }, [open, bundle, evidenceModel]);
   const transcript = Array.isArray(bundle?.transcript) ? (bundle?.transcript as Array<{ seq?: number; role?: string; content?: string }>) : [];
   const downloadBundle = () => {
     if (!bundle) return;
@@ -146,6 +157,11 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
             Download bundle
           </button>
         )}
+        {bundle && (
+          <button type="button" onClick={() => setShowWidget((v) => !v)} className="text-cta hover:underline">
+            {showWidget ? 'Hide NEAR widget' : 'NEAR widget'}
+          </button>
+        )}
         {sandboxId && onOpenVerify && (
           <button type="button" onClick={() => onOpenVerify(sandboxId)} className="text-cta hover:underline">
             Verify in Sandboxes
@@ -179,6 +195,11 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
               )}
         {receipt?.signature && (
           <p className="mt-1 break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
+        )}
+        {showWidget && widgetReports && (
+          <div className="mt-1 rounded-lg bg-white p-2">
+            <VerificationWidget reports={widgetReports} />
+          </div>
         )}
         {showHistory && transcript.length > 0 && (
           <div className="mt-1 space-y-1 border-t border-navy/10 pt-1.5">
