@@ -6,19 +6,22 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { LogOut, Pencil, Settings, ShieldCheck } from 'lucide-react';
 import { getCurrentUser, signOut } from 'aws-amplify/auth';
 import { getMyProfile } from '@/lib/data';
+import { requestComputer } from '@/lib/computer';
 import ProfileModal from './ProfileModal';
+import ConnectorsModal from '../app/Connectors/ConnectorsModal';
 
 /**
- * Sidebar bottom (mirrors wayfind-cloud RosterFooter footer block):
-  * display-name row + avatar/menu popup + Sandboxes pill (placeholder).
- * Cloud-only pieces (computer lifecycle, Usage, Connectors, seed bot)
- * are intentionally not ported.
+ * Sidebar bottom (mirrors wayfind-cloud RosterFooter footer):
+ * display-name row + avatar/menu popup (Settings, Sandboxes, sign out)
+ * + Connectors pill opening the import modal.
  */
 export default function SidebarFooter({ email, onSettings, onSandboxes }: { email?: string; onSettings: () => void; onSandboxes: () => void }) {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [nameOpen, setNameOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [computerReady, setComputerReady] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -118,6 +121,17 @@ export default function SidebarFooter({ email, onSettings, onSandboxes }: { emai
                   <Settings className="h-4 w-4" strokeWidth={2.2} />
                   Settings
                 </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onSandboxes();
+                  }}
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-semibold text-navy hover:bg-ice"
+                >
+                  <ShieldCheck className="h-4 w-4" strokeWidth={2.2} />
+                  Sandboxes
+                </button>
                 <div className="mx-4 my-1 border-t border-navy/10" aria-hidden="true" />
                 <button
                   role="menuitem"
@@ -141,13 +155,27 @@ export default function SidebarFooter({ email, onSettings, onSandboxes }: { emai
             {initial}
           </button>
         </span>
-        {/* Sandboxes — opens the evidence slide-in panel. */}
+        {/* Connectors — opens the import modal (mirrors cloud RosterFooter). */}
         <button
-          onClick={onSandboxes}
+          onClick={() => {
+            setConnectorsOpen(true);
+            void requestComputer('one_outer')
+              .then(({ data }) => {
+                setComputerReady(data.provisionStatus === 'running' || data.provisionStatus === 'suspended');
+              })
+              .catch(() => setComputerReady(false));
+          }}
           className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-full bg-white py-2.5 font-semibold text-navy shadow-sm hover:bg-slate-50"
         >
-          <ShieldCheck className="h-4 w-4" strokeWidth={2.2} />
-          Sandboxes
+          Connectors
+          <span className="flex -space-x-1.5" aria-hidden="true">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/connectors/stripe.png" alt="" className="h-5 w-5 rounded-full bg-white object-contain ring-2 ring-white" loading="lazy" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/connectors/hubspot.png" alt="" className="h-5 w-5 rounded-full bg-white object-contain ring-2 ring-white" loading="lazy" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/connectors/mailchimp.png" alt="" className="h-5 w-5 rounded-full bg-white object-contain ring-2 ring-white" loading="lazy" />
+          </span>
         </button>
       </div>
       <ProfileModal
@@ -156,6 +184,11 @@ export default function SidebarFooter({ email, onSettings, onSandboxes }: { emai
         profileId={profileId}
         initialName={displayName}
         onSaved={setDisplayName}
+      />
+      <ConnectorsModal
+        open={connectorsOpen}
+        onClose={() => setConnectorsOpen(false)}
+        computerReady={computerReady}
       />
     </div>
   );

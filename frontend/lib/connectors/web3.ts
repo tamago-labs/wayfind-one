@@ -1,0 +1,10 @@
+// Wayfind Web3 Gateway connectors — balances, swaps, and stablecoin flows on Solana.
+// Kept in this file so gateway tools stay together; merged into CONNECTORS in
+// lib/connectors.ts. Import type only — avoids a runtime cycle.
+import type { Connector } from '../connectors';
+
+export const WEB3_CONNECTORS: Connector[] = [
+  { name: 'Wallet Essentials', type: 'Web3', category: 'Solana', blurb: 'Check balances, track activity, and move tokens.', status: 'Via Web3 Gateway', image: 'https://pbs.twimg.com/profile_images/2106330567872786432/hJXHNtGj_400x400.jpg', description: 'Wallet Operations: check balances, track transactions, and send SOL and SPL tokens on Solana — your Bots move funds through scoped tools under policies you approve.', website: 'https://web3.wayfind.click/', tools: ['Check SOL and token balances', 'Look up a wallet address', 'Read transaction history', 'Inspect a transaction', 'Send SOL or SPL tokens'], totalTools: 5 },
+  { name: 'OKX DEX Swaps', type: 'Web3', category: 'Solana', blurb: 'Quotes and token swaps through the OKX DEX Router.', status: 'Via Web3 Gateway', image: 'https://bitpinas.com/wp-content/uploads/2025/05/OKX-Wallet.webp', description: 'OKX DEX Swaps: find the best route and swap tokens through OKX DEX on Solana — your Bots trade within the spending limits you set.', website: 'https://web3.wayfind.click/', tools: ['Get a swap quote', 'Swap tokens via OKX DEX'], totalTools: 2 },
+  { name: 'Stablecoin Finance', type: 'Web3', category: 'Solana', blurb: 'Deposit once, spend USDC on any chain via Circle Gateway.', status: 'Via Web3 Gateway', image: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSKJOU1hlUwQHEaxxTrT0wu40kDcvhQKMr4w6ga1m8gaA&s=10', description: 'Stablecoin Finance: unified USDC balances, supported chains, Gateway deposits, and cross-chain spending — your Bots move stablecoins under policy guardrails.', website: 'https://web3.wayfind.click/', tools: ['Read unified USDC balance', 'List supported chains', 'Deposit USDC to unified balance', 'Spend USDC cross-chain'], totalTools: 4 },
+];
