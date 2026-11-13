@@ -10,7 +10,7 @@ import { Err } from '../shared';
 
 type BundleEvidence = {
   receipt?: { model?: string };
-  botEvidence?: Parameters<typeof toVerificationReports>[1];
+  evidence?: { botEvidence?: Parameters<typeof toVerificationReports>[1] };
 };
 
 export default function VerifySection({ initialId }: { initialId?: string | null }) {
@@ -68,7 +68,7 @@ export default function VerifySection({ initialId }: { initialId?: string | null
           if (bundle && check.valid === true) {
             const r = receipt as { model?: string };
             const model = typeof r.model === 'string' && r.model ? r.model : 'Qwen/Qwen3.8-27B';
-            setWidgetReports(toVerificationReports(model, bundle.botEvidence ?? null));
+            setWidgetReports(toVerificationReports(model, bundle.evidence?.botEvidence ?? null));
           }
         } finally {
           setChecking(false);

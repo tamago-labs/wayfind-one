@@ -69,12 +69,14 @@ export default function ConversationsSection() {
     setWidgetLoading(sandboxId);
     try {
       const out = await teamEvidence(sandboxId);
-      const ev = (out.evidence ?? {}) as {
+      // Stored bundle nests the inner attestations two levels down:
+      // { receipt, evidence: { checkpoint, botEvidence: { preflight, … } } }.
+      const stored = (out.evidence ?? {}) as {
         receipt?: { model?: string };
-        botEvidence?: Parameters<typeof toVerificationReports>[1];
+        evidence?: { botEvidence?: Parameters<typeof toVerificationReports>[1] };
       };
-      const model = typeof ev.receipt?.model === 'string' && ev.receipt.model ? ev.receipt.model : 'Qwen/Qwen3.8-27B';
-      setWidgetData((p) => ({ ...p, [sandboxId]: { reports: toVerificationReports(model, ev.botEvidence ?? null) } }));
+      const model = typeof stored.receipt?.model === 'string' && stored.receipt.model ? stored.receipt.model : 'Qwen/Qwen3.8-27B';
+      setWidgetData((p) => ({ ...p, [sandboxId]: { reports: toVerificationReports(model, stored.evidence?.botEvidence ?? null) } }));
     } catch (e) {
       setWidgetData((p) => ({ ...p, [sandboxId]: { error: e instanceof Error ? e.message : String(e) } }));
     } finally {
