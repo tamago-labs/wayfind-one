@@ -220,6 +220,26 @@ export async function spawnSandbox(input: {
   return apiFetch('/sandboxes', { method: 'POST', body: input });
 }
 
+export interface SandboxLive {
+  sandboxId: string;
+  profile: SandboxProfile;
+  policy: string;
+  parentComputerId: string | null;
+  provisionedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+export async function listSandboxes(): Promise<{ sandboxes: SandboxLive[] }> {
+  return apiFetch('/sandboxes');
+}
+
+export async function messageSandbox(
+  id: string,
+  input: { sub?: string; body?: unknown; fileInputs?: SandboxFileInput[] },
+): Promise<{ result?: unknown; error?: string }> {
+  return apiFetch(`/sandboxes/${encodeURIComponent(id)}/message`, { method: 'POST', body: input });
+}
+
 export async function runSandbox(
   id: string,
   input: { goal: string; goalHash?: string },
