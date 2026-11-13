@@ -328,9 +328,9 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     onBusy(bot.id);
     setError(null);
     try {
-      const inputs: Array<{ path: string; contentBase64: string }> = [];
+      const inputs: Array<{ name: string; contentBase64: string }> = [];
       for (const f of files) {
-        inputs.push({ path: f.name, contentBase64: b64encode(await f.arrayBuffer()) });
+        inputs.push({ name: f.name, contentBase64: b64encode(await f.arrayBuffer()) });
       }
       const { staged } = await stageFiles(inputs);
       if (!staged || staged.length === 0) throw new Error('staging failed: no files accepted');

@@ -176,7 +176,7 @@ export async function imageTrust(): Promise<{ imageTrust: { imageArn: string | n
 // sealed envelopes.
 
 export interface SandboxFileInput {
-  path: string;
+  name: string;
   contentBase64: string;
 }
 
