@@ -77,6 +77,17 @@ async function postJson(api: ApiCtx, path: string, body: unknown): Promise<{ ok:
   return { ok: res.ok, status: res.status, data };
 }
 
+async function getJson(api: ApiCtx, path: string): Promise<{ ok: boolean; status: number; data: unknown }> {
+  let res: Response;
+  try {
+    res = await fetch(`${api.base}${path}`, { headers: api.headers });
+  } catch (err) {
+    return { ok: false, status: 0, data: { error: `request failed: ${err instanceof Error ? err.message : err}` } };
+  }
+  const data = (await res.json().catch(() => ({}))) as unknown;
+  return { ok: res.ok, status: res.status, data };
+}
+
 /** Bot brief + role for the inner system prompt — training transfer. The
  * inner starts with what this bot knows; the binding is the brief hash. */
 function botBriefBlock(opts: GuardOpts): { system: string; briefHash: string | null } {
@@ -132,6 +143,20 @@ async function closeSessionWithEvidence(
   goalHash: string,
   reason: string,
 ): Promise<Closeout> {
+  // Grab the transcript BEFORE terminate (the VM dies after this). Best
+  // effort: a missing transcript must never block closeout + receipt.
+  let transcript: unknown = null;
+  try {
+    const t = await postJson(api, `/sandboxes/${s.sandboxId}/message`, {
+      ...(api.computerId ? { computerId: api.computerId } : {}),
+      sub: 'bot/transcript',
+      body: {},
+    });
+    const d = t.data as { result?: { entries?: unknown } };
+    if (t.ok && Array.isArray(d.result?.entries)) transcript = d.result.entries;
+  } catch {
+    // Fall through — evidence without transcript still verifies.
+  }
   const out = await terminateSession(api, s.sandboxId, goalHash);
   sessions.delete(key);
   try {
@@ -142,6 +167,7 @@ async function closeSessionWithEvidence(
       goalHashes: s.goals,
       closedAt: new Date().toISOString(),
       closeReason: reason,
+      transcript,
       receipt: out.receipt ?? null,
       evidence: out.evidence ?? null,
     });
@@ -327,14 +353,30 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
       async () => {
         const key = sessionKey(opts);
         const s = sessions.get(key);
-        if (!s) return 'No open inner sandbox for this thread — nothing to close.';
+        if (s) {
+          const api = apiCtx(opts);
+          if ('missing' in api) return `Cannot close: inner sandboxes aren't available (${api.missing}).`;
+          const out = await closeSessionWithEvidence(api, key, s, `close:${key}`, 'explicit');
+          return (
+            `Inner sandbox ${s.sandboxId} closed after ${s.turns} turn(s): kill ${out.verified ? 'verified' : 'UNVERIFIED'}, receipt ${out.receiptClass}. ` +
+            `Evidence saved — open it from the evidence card below or Sandboxes → verify.`
+          );
+        }
+        // No cached session (e.g. computer restarted after spawning): fall
+        // back to the control-plane registry instead of claiming nothing.
         const api = apiCtx(opts);
         if ('missing' in api) return `Cannot close: inner sandboxes aren't available (${api.missing}).`;
-        const out = await closeSessionWithEvidence(api, key, s, `close:${key}`, 'explicit');
-        return (
-          `Inner sandbox ${s.sandboxId} closed after ${s.turns} turn(s): kill ${out.verified ? 'verified' : 'UNVERIFIED'}, receipt ${out.receiptClass}. Evidence saved — open it from the View evidence button.\n` +
-          `<inner_result sandbox="${s.sandboxId}" session="closed" policy="verified_inference (enforced inside)" receipt="${out.receiptClass}">closed</inner_result>`
+        const list = await getJson(api, `/sandboxes${api.computerId ? `?computerId=${encodeURIComponent(api.computerId)}` : ''}`);
+        const rows = ((list.data as { sandboxes?: Array<{ sandboxId?: string }> }).sandboxes ?? []).filter(
+          (r): r is { sandboxId: string } => typeof r.sandboxId === 'string',
         );
+        if (rows.length === 0) return 'No open inner sandbox found for this computer — nothing to close.';
+        if (rows.length > 1) {
+          return `Multiple open sessions (${rows.map((r) => r.sandboxId).join(', ')}). Tell me which sandbox id to close, or close extras from Sandboxes → Live.`;
+        }
+        const sid = rows[0].sandboxId;
+        const out = await closeSessionWithEvidence(api, key, { sandboxId: sid, lastUsedAt: Date.now(), turns: 0, goals: [] }, `close:${key}`, 'explicit-uncached');
+        return `Inner sandbox ${sid} closed (verified=${out.verified}, receipt ${out.receiptClass}). Evidence saved — open it from the evidence card below or Sandboxes → verify.`;
       },
       opts,
     ),

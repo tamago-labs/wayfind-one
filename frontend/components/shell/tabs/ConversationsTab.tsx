@@ -13,8 +13,10 @@ import {
   relayMessage,
   terminateConversation,
   terminateSandbox,
+  verifyReceiptServer,
   type SandboxLive,
 } from '@/lib/wayfind';
+import { teamEvidence, teamEvidenceList, type ClosedSandboxRun } from '@/lib/team';
 import { CopyId, Err, downloadEvidenceBundle } from '../shared';
 
 function LiveConversation({ id, onClosed }: { id: string; onClosed: () => void }) {
@@ -245,6 +247,9 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
   const [openId, setOpenId] = useState<string | null>(null);
   const [live, setLive] = useState<SandboxLive[] | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
+  const [closed, setClosed] = useState<ClosedSandboxRun[] | null>(null);
+  const [verifying, setVerifying] = useState<string | null>(null);
+  const [verified, setVerified] = useState<Record<string, { ok: boolean; detail: string }>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -261,7 +266,37 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
     } catch {
       setLive([]);
     }
+    try {
+      const out = await teamEvidenceList();
+      setClosed(out.evidence ?? []);
+    } catch {
+      setClosed([]);
+    }
   }, []);
+
+  async function verifyClosed(sandboxId: string) {
+    setVerifying(sandboxId);
+    try {
+      const out = await teamEvidence(sandboxId);
+      const receipt = (out.evidence as { receipt?: unknown })?.receipt;
+      if (!receipt) {
+        setVerified((p) => ({ ...p, [sandboxId]: { ok: false, detail: 'no receipt stored' } }));
+        return;
+      }
+      const res = (await verifyReceiptServer(receipt)) as { valid?: boolean; kid?: string; signerMatch?: boolean };
+      setVerified((p) => ({
+        ...p,
+        [sandboxId]: {
+          ok: res.valid === true,
+          detail: res.valid === true ? `signature valid · kid ${res.kid ?? '?'}${res.signerMatch === false ? ' · key rotated?' : ''}` : 'signature did NOT verify',
+        },
+      }));
+    } catch (e) {
+      setVerified((p) => ({ ...p, [sandboxId]: { ok: false, detail: e instanceof Error ? e.message : String(e) } }));
+    } finally {
+      setVerifying(null);
+    }
+  }
 
   useEffect(() => {
     refresh();
@@ -309,6 +344,35 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
         ))}
         {live !== null && live.length === 0 && (
           <p className="text-xs text-ink">None open — escalate from a team chat and the session appears here.</p>
+        )}
+      </div>
+      <p className="mt-4 text-sm font-semibold text-navy">Recent closed sandboxes</p>
+      <p className="text-xs text-ink">Signed receipts live here — same microvm-… ids as chat and evidence cards.</p>
+      <div className="mt-2 space-y-2">
+        {(closed ?? []).map((c) => (
+          <div key={c.sandboxId} className="rounded-xl border border-navy/10 bg-white px-4 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-navy">
+                <CopyId id={c.sandboxId} /> · {c.turns ?? '?'} turn(s){c.receiptClass ? ` · receipt: ${c.receiptClass}` : ''}
+              </span>
+              <button
+                type="button"
+                disabled={verifying === c.sandboxId}
+                onClick={() => void verifyClosed(c.sandboxId)}
+                className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-navy shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {verifying === c.sandboxId ? 'Checking…' : 'Verify'}
+              </button>
+            </div>
+            {verified[c.sandboxId] && (
+              <p className={`mt-1 text-xs font-semibold ${verified[c.sandboxId].ok ? 'text-green-700' : 'text-red-700'}`}>
+                {verified[c.sandboxId].ok ? 'SIGNATURE VALID' : 'NOT VERIFIED'} <span className="font-normal text-ink">· {verified[c.sandboxId].detail}</span>
+              </p>
+            )}
+          </div>
+        ))}
+        {closed !== null && closed.length === 0 && (
+          <p className="text-xs text-ink">No closed runs yet — close a session (chat or above) and its signed receipt lands here.</p>
         )}
       </div>
       <p className="mt-4 text-sm font-semibold text-navy">Conversations</p>

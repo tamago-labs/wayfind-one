@@ -107,6 +107,11 @@ export default function OneShell({ email }: { email?: string }) {
     setSandboxesOpen(true);
   };
 
+  const handleOpenVerify = (sandboxId: string) => {
+    setOpenRequest(sandboxId);
+    openSandboxes('verify');
+  };
+
   const saveBotEdits = useCallback(
     async (id: string, edits: BotEdits): Promise<string | null> => {
       try {
@@ -223,6 +228,7 @@ export default function OneShell({ email }: { email?: string }) {
             onBusy={setBusyId}
             onNeedBots={() => setModalOpen(true)}
             onOpenSettings={() => setPanelOpen(true)}
+            onOpenVerify={handleOpenVerify}
             onTeamChanged={() => loadBots()}
           />
         )}
@@ -236,7 +242,7 @@ export default function OneShell({ email }: { email?: string }) {
       />
       <BotPanel open={panelOpen} onClose={() => setPanelOpen(false)} bot={selected} onSave={saveBotEdits} onDelete={deleteBot} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <SandboxesPanel open={sandboxesOpen} onClose={() => setSandboxesOpen(false)} onCreated={handleCreated} initialSection={sandboxSection} openRequest={openRequest} />
+      <SandboxesPanel open={sandboxesOpen} onClose={() => { setSandboxesOpen(false); setOpenRequest(null); }} onCreated={handleCreated} initialSection={sandboxSection} openRequest={openRequest} verifyRequest={sandboxSection === 'verify' ? openRequest : null} />
     </div>
   );
 }

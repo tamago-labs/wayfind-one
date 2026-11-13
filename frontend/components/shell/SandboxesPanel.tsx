@@ -26,12 +26,14 @@ export default function SandboxesPanel({
   onCreated,
   initialSection,
   openRequest,
+  verifyRequest,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (id: string) => void;
   initialSection: Section;
   openRequest: string | null;
+  verifyRequest?: string | null;
 }) {
   const [section, setSection] = useState<Section>(initialSection);
 
@@ -104,7 +106,7 @@ export default function SandboxesPanel({
               {section === 'new' && <NewSection onCreated={onCreated} />}
               {section === 'bots' && <BotsSection onCreated={onCreated} />}
               {section === 'sandboxes' && <ConversationsSection openRequest={openRequest} />}
-              {section === 'verify' && <VerifySection />}
+              {section === 'verify' && <VerifySection initialId={verifyRequest ?? undefined} />}
               {section === 'activity' && <ActivitySection />}
               {section === 'settings' && <SettingsSection />}
             </div>

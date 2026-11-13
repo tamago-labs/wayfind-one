@@ -1,31 +1,44 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { checkReceipt } from '@/lib/receipt';
 import { listConversations, verifyReceiptServer } from '@/lib/wayfind';
+import { teamEvidence } from '@/lib/team';
 import { Err } from '../shared';
 
-export default function VerifySection() {
+export default function VerifySection({ initialId }: { initialId?: string | null }) {
   const [input, setInput] = useState('');
   const [result, setResult] = useState<ReturnType<typeof checkReceipt> | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const [serverCheck, setServerCheck] = useState<{ valid?: boolean; kid?: string; signerMatch?: boolean; checks?: Array<{ name: string; pass: boolean; detail?: string }>; reason?: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  const [serverCheck, setServerCheck] = useState<{ valid?: boolean; kid?: string; signerMatch?: boolean; checks?: Array<{ name: string; pass: boolean; detail?: string }>; reason?: string } | null>(null);
 
-  async function run() {
+  async function runWith(raw: string) {
     setError(null);
     setResult(null);
     setServerCheck(null);
-    const trimmed = input.trim();
+    const trimmed = raw.trim();
     if (!trimmed) {
-      setError('Paste a receipt JSON or a sandbox id.');
+      setError('Paste a receipt JSON, a conversation id, or a sandbox id.');
       return;
     }
     try {
       let receipt: unknown = null;
       if (trimmed.startsWith('{')) {
         receipt = JSON.parse(trimmed);
+      } else if (/^microvm-[A-Za-z0-9-]+$/.test(trimmed)) {
+        // Inner sandbox run: receipt lives in the outer's stored evidence
+        // bundle (same id you see in chat and the Sandboxes panel).
+        try {
+          const out = await teamEvidence(trimmed);
+          receipt = (out.evidence as { receipt?: unknown })?.receipt ?? null;
+        } catch {
+          receipt = null;
+        }
+        if (!receipt) {
+          setError('No stored evidence for that sandbox yet — close the session first (Sandboxes panel → Close), then verify.');
+          return;
+        }
       } else {
         const convs = await listConversations();
         const conv = convs.find((c) => c.conversationId === trimmed);
@@ -49,6 +62,21 @@ export default function VerifySection() {
     }
   }
 
+  async function run() {
+    await runWith(input);
+  }
+
+  // Deep link from an evidence card: prefill + auto-run once per id.
+  const autoRan = useRef<string | null>(null);
+  useEffect(() => {
+    if (initialId && autoRan.current !== initialId) {
+      autoRan.current = initialId;
+      setInput(initialId);
+      void runWith(initialId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialId]);
+
   return (
     <div>
       <p className="text-sm text-ink">Same checks as <span className="font-mono">wayfind verify</span> — v0 receipts are integrity-checked, not yet signed (Phase 2).</p>
@@ -56,7 +84,7 @@ export default function VerifySection() {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         rows={4}
-        placeholder='Paste receipt JSON, or a sandbox id'
+        placeholder='Paste receipt JSON, a conversation id, or a sandbox id (microvm-…)'
         className="mt-4 w-full rounded-xl border border-navy/15 bg-white px-3 py-2 font-mono text-xs text-navy"
       />
       <button onClick={run} className="mt-2 rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover">

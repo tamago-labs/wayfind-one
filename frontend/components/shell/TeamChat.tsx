@@ -19,6 +19,7 @@ interface TeamChatProps {
   onBusy: (botId: string | null) => void;
   onNeedBots: () => void;
   onOpenSettings: () => void;
+  onOpenVerify?: (sandboxId: string) => void;
   onTeamChanged: () => void;
 }
 
@@ -78,11 +79,12 @@ function EscalationTimer({ since, onDismiss }: { since: number; onDismiss: () =>
   );
 }
 
-function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptClass }: { sandboxId?: string; verification?: string; policy?: string; turn?: string; session?: string; receiptClass?: string }) {
+function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptClass, onOpenVerify }: { sandboxId?: string; verification?: string; policy?: string; turn?: string; session?: string; receiptClass?: string; onOpenVerify?: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [bundle, setBundle] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const toggle = async () => {
     if (open) {
       setOpen(false);
@@ -102,6 +104,19 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
     }
   };
   const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string } } | undefined;
+  const transcript = Array.isArray(bundle?.transcript) ? (bundle?.transcript as Array<{ seq?: number; role?: string; content?: string }>) : [];
+  const downloadBundle = () => {
+    if (!bundle) return;
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wayfind-evidence-${(sandboxId ?? 'sandbox').slice(0, 8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const inference = (bundle?.evidence as { botEvidence?: { verified?: boolean; messages?: Array<{ checked?: boolean; valid?: boolean; kind?: string }> }; preflight?: { nodes?: number; modelTee?: string[]; nvidia?: { gpus?: number } } } | undefined);
   return (
     <div className="mt-2 rounded-xl border border-navy/15 bg-mist px-3 py-2 text-xs text-navy">
@@ -117,9 +132,26 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
         {sandboxId && <CopyId id={sandboxId} />}
       </p>
       {policy && <p className="mt-0.5 text-ink">Policy: {policy}</p>}
-      <button type="button" onClick={toggle} className="mt-1 font-semibold text-cta hover:underline">
-        {open ? 'Hide evidence' : 'View evidence'}
-      </button>
+      <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-semibold">
+        <button type="button" onClick={toggle} className="text-cta hover:underline">
+          {open ? 'Hide evidence' : 'View evidence'}
+        </button>
+        {bundle && transcript.length > 0 && (
+          <button type="button" onClick={() => setShowHistory((v) => !v)} className="text-cta hover:underline">
+            {showHistory ? 'Hide history' : `Load history (${transcript.length} turns, decrypted)`}
+          </button>
+        )}
+        {bundle && (
+          <button type="button" onClick={downloadBundle} className="text-cta hover:underline">
+            Download bundle
+          </button>
+        )}
+        {sandboxId && onOpenVerify && (
+          <button type="button" onClick={() => onOpenVerify(sandboxId)} className="text-cta hover:underline">
+            Verify in Sandboxes
+          </button>
+        )}
+      </span>
       {open && (
         <div className="mt-1 rounded-lg bg-white p-2">
           {loading && <p className="text-ink">Loading evidence…</p>}
@@ -145,9 +177,19 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
               {Array.isArray((bundle?.evidence as { parsing?: unknown[] } | undefined)?.parsing) && ((bundle?.evidence as { parsing?: unknown[] }).parsing as unknown[]).length > 0 && (
                 <p className="mt-1">Parsing (non-attested utility): {((bundle?.evidence as { parsing?: Array<{ path?: string; kind?: string }> }).parsing as Array<{ path?: string; kind?: string }>).map((p) => `${p.path ?? '?'} (${p.kind ?? '?'})`).join(', ')}</p>
               )}
-              {receipt?.signature && (
-                <p className="mt-1 break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
-              )}
+        {receipt?.signature && (
+          <p className="mt-1 break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
+        )}
+        {showHistory && transcript.length > 0 && (
+          <div className="mt-1 space-y-1 border-t border-navy/10 pt-1.5">
+            {transcript.map((t, i) => (
+              <p key={t.seq ?? i} className={t.role === 'user' ? 'text-ink' : ''}>
+                <span className="font-semibold text-navy">{t.role === 'user' ? 'You' : 'Sandbox'}: </span>
+                <span className="whitespace-pre-wrap">{String(t.content ?? '').slice(0, 2000)}{String(t.content ?? '').length > 2000 ? '…' : ''}</span>
+              </p>
+            ))}
+          </div>
+        )}
             </>
           )}
         </div>
@@ -266,7 +308,7 @@ function QuestionCard({ q, onAnswer }: { q: ParkedQuestion; onAnswer: (answers: 
 }
 
 /** Thread view for the selected team bot (roster lives in the sidebar). */
-export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNames, onBusy, onNeedBots, onOpenSettings, onTeamChanged }: TeamChatProps) {
+export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNames, onBusy, onNeedBots, onOpenSettings, onOpenVerify, onTeamChanged }: TeamChatProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [verified, setVerified] = useState(true);
   const [draft, setDraft] = useState('');
@@ -756,16 +798,17 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
                         return (
                           <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
                             <Markdown text={parsed ? parsed.text || '(attested result below)' : m.content} />
-                            {parsed && (
-                              <EvidenceCard
-                                sandboxId={parsed.attrs.sandbox}
-                                verification={parsed.attrs.verification}
-                                receiptClass={parsed.attrs.receipt}
-                                policy={parsed.attrs.policy}
-                                turn={parsed.attrs.turn}
-                                session={parsed.attrs.session}
-                              />
-                            )}
+                      {parsed && (
+                        <EvidenceCard
+                          sandboxId={parsed.attrs.sandbox}
+                          verification={parsed.attrs.verification}
+                          receiptClass={parsed.attrs.receipt}
+                          policy={parsed.attrs.policy}
+                          turn={parsed.attrs.turn}
+                          session={parsed.attrs.session}
+                          onOpenVerify={onOpenVerify}
+                        />
+                      )}
                           </div>
                         );
                       })()

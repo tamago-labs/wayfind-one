@@ -210,9 +210,38 @@ export function saveEvidence(sandboxId: string, record: Record<string, unknown>)
   writeManifest();
 }
 
+/** List stored evidence bundles (newest first) for the panel's closed-runs
+ * section: [{ sandboxId, closedAt, turns, receiptClass }]. */
+export function listEvidence(): Array<{ sandboxId: string; closedAt: string | null; turns: number | null; receiptClass: string | null }> {
+  ensureTeamSeed('meta-models/Muse-Spark-Open-816B-A42B');
+  const dir = join(TEAM_DIR, 'evidence');
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out: Array<{ sandboxId: string; closedAt: string | null; turns: number | null; receiptClass: string | null }> = [];
+  for (const name of names.slice(0, 200)) {
+    try {
+      const raw = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Record<string, unknown>;
+      const receipt = raw.receipt as { class?: string } | undefined;
+      out.push({
+        sandboxId: String(raw.sandboxId ?? name.replace(/\.json$/, '')),
+        closedAt: typeof raw.closedAt === 'string' ? raw.closedAt : null,
+        turns: typeof raw.turns === 'number' ? raw.turns : null,
+        receiptClass: typeof receipt?.class === 'string' ? receipt.class : null,
+      });
+    } catch {
+      // Corrupt bundle — skip, never crash the list.
+    }
+  }
+  out.sort((a, b) => String(b.closedAt ?? '').localeCompare(String(a.closedAt ?? '')));
+  return out;
+}
+
 /** Read a stored evidence bundle (frontend viewer path). Null if absent. */
-export function readEvidence(sandboxId: string): Record<string, unknown> | null {
-  const safe = String(sandboxId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 128);
+export function readEvidence(sandboxId: string): Record<string, unknown> | null {  const safe = String(sandboxId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 128);
   if (!safe) return null;
   const p = join(EVIDENCE_DIR, `${safe}.json`);
   if (!existsSync(p)) return null;

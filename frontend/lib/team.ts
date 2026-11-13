@@ -251,6 +251,17 @@ export async function teamEvidence(sandboxId: string): Promise<{ evidence: Recor
   return teamFetch(`/team/evidence/${encodeURIComponent(sandboxId)}`);
 }
 
+export interface ClosedSandboxRun {
+  sandboxId: string;
+  closedAt: string | null;
+  turns: number | null;
+  receiptClass: string | null;
+}
+
+export async function teamEvidenceList(): Promise<{ evidence: ClosedSandboxRun[] }> {
+  return teamFetch('/team/evidence');
+}
+
 export interface ChatStagedRef {
   id: string;
   name: string;
