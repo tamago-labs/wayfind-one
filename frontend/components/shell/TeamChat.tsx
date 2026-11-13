@@ -1,13 +1,14 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, PanelRight, Paperclip, Send, X } from 'lucide-react';
+import { Loader2, Mic, PanelRight, Paperclip, Send, ShieldCheck, X } from 'lucide-react';
 import Mascot from '@/components/Mascot';
 import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun, type ChatStagedRef } from '@/lib/team';
 import Markdown from './Markdown';
 import VoiceModal from './VoiceModal';
-import { Err } from './shared';
+import { Err, CopyId } from './shared';
 import { stageFiles } from '@/lib/wayfind';
+import { teamEvidence } from '@/lib/team';
 
 interface TeamChatProps {
   bot: TeamBot | null;
@@ -29,6 +30,125 @@ const greetedBots = new Set<string>();
 
 function visibleEntries(entries: HistoryEntry[]): HistoryEntry[] {
   return entries.filter((e) => !(e.role === 'user' && e.content.startsWith(HELLO_PREFIX)));
+}
+
+/** Split a trailing <inner_result …>…</inner_result> block (emitted by the
+ * escalation tool) from prose. Null when the model paraphrased it away —
+ * the card degrades gracefully to plain text. */
+function parseInnerResult(content: string): { text: string; attrs: Record<string, string> } | null {
+  const m = content.match(/<inner_result([^>]*)>([\s\S]*?)<\/inner_result>\s*$/);
+  if (!m) return null;
+  const attrs: Record<string, string> = {};
+  for (const am of m[1].matchAll(/([a-zA-Z-]+)="([^"]*)"/g)) attrs[am[1]] = am[2];
+  return { text: content.slice(0, m.index).trim(), attrs };
+}
+
+function fmtElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function EscalationTimer({ since }: { since: number }) {
+  const secs = Math.floor((Date.now() - since) / 1000);
+  const stage = secs < 150 ? 0 : secs < 210 ? 1 : 2;
+  const stages = ['Provisioning disposable VM', 'Checking attestation', 'Running + verifying'];
+  return (
+    <div className="w-fit max-w-[85%] rounded-2xl rounded-bl-sm border border-navy/15 bg-white px-4 py-3 shadow-sm">
+      <p className="flex items-center gap-2 text-xs font-bold text-navy">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.4} />
+        Sandbox working… {fmtElapsed(Date.now() - since)} elapsed
+      </p>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {stages.map((label, i) => (
+          <span
+            key={label}
+            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${i < stage ? 'bg-green-100 text-green-800' : i === stage ? 'bg-navy text-white' : 'bg-slate-100 text-navy/50'}`}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+      <p className="mt-1 text-[11px] text-ink">Typical run 3–6 min — stages are typical timings, not live progress.</p>
+    </div>
+  );
+}
+
+function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptClass }: { sandboxId?: string; verification?: string; policy?: string; turn?: string; session?: string; receiptClass?: string }) {
+  const [open, setOpen] = useState(false);
+  const [bundle, setBundle] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toggle = async () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (bundle || !sandboxId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const out = await teamEvidence(sandboxId);
+      setBundle((out.evidence as Record<string, unknown>) ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string } } | undefined;
+  const inference = (bundle?.evidence as { botEvidence?: { verified?: boolean; messages?: Array<{ checked?: boolean; valid?: boolean; kind?: string }> }; preflight?: { nodes?: number; modelTee?: string[]; nvidia?: { gpus?: number } } } | undefined);
+  return (
+    <div className="mt-2 rounded-xl border border-navy/15 bg-mist px-3 py-2 text-xs text-navy">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
+        <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.4} />
+        <span>Attested run{turn ? ` · turn ${turn}` : ''}</span>
+        {verification && <span className="rounded-full bg-white px-2 py-0.5 font-mono">{verification}</span>}
+        {session === 'open' ? (
+          <span className="rounded-full bg-bamber/30 px-2 py-0.5">session open</span>
+        ) : (
+          receiptClass && <span className={`rounded-full px-2 py-0.5 ${receiptClass === 'signed' ? 'bg-green-100 text-green-800' : 'bg-bamber/30 text-navy'}`}>receipt: {receiptClass}</span>
+        )}
+        {sandboxId && <CopyId id={sandboxId} />}
+      </p>
+      {policy && <p className="mt-0.5 text-ink">Policy: {policy}</p>}
+      <button type="button" onClick={toggle} className="mt-1 font-semibold text-cta hover:underline">
+        {open ? 'Hide evidence' : 'View evidence'}
+      </button>
+      {open && (
+        <div className="mt-1 rounded-lg bg-white p-2">
+          {loading && <p className="text-ink">Loading evidence…</p>}
+          {error && <p className="font-semibold text-red-700">Failed: {error}</p>}
+          {!loading && !error && !bundle && <p className="text-ink">No stored bundle yet — close the sandbox session first.</p>}
+          {bundle && (
+            <>
+              {inference?.preflight && (
+                <p>
+                  Preflight: {inference.preflight.nodes ?? '?'} node(s), {inference.preflight.modelTee?.length ?? 0} model-TEE signer(s)
+                  {typeof inference.preflight.nvidia === 'object' && inference.preflight.nvidia !== null && 'gpus' in (inference.preflight.nvidia as object) ? `, ${(inference.preflight.nvidia as { gpus?: number }).gpus ?? '?'} NVIDIA GPUs` : ''}
+                </p>
+              )}
+              {Array.isArray(inference?.botEvidence?.messages) && inference.botEvidence.messages.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {(inference.botEvidence.messages as Array<{ checked?: boolean; valid?: boolean; kind?: string }>).map((v, i) => (
+                    <p key={i} className="font-mono">
+                      turn {i + 1}: {v.kind ?? '?'} · signature {v.valid === true ? 'valid' : v.checked === false ? 'unchecked' : 'INVALID'}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {Array.isArray((bundle?.evidence as { parsing?: unknown[] } | undefined)?.parsing) && ((bundle?.evidence as { parsing?: unknown[] }).parsing as unknown[]).length > 0 && (
+                <p className="mt-1">Parsing (non-attested utility): {((bundle?.evidence as { parsing?: Array<{ path?: string; kind?: string }> }).parsing as Array<{ path?: string; kind?: string }>).map((p) => `${p.path ?? '?'} (${p.kind ?? '?'})`).join(', ')}</p>
+              )}
+              {receipt?.signature && (
+                <p className="mt-1 break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface BotReq {
@@ -157,6 +277,16 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   // POST /sandboxes/stage (control plane) — bytes never touch the outer VM.
   const [attached, setAttached] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Escalation timer: set when a spawn_inner_sandbox approval is granted;
+  // cleared when fresh assistant content arrives. Typical run is minutes.
+  const [escalatedAt, setEscalatedAt] = useState<number | null>(null);
+  const escalatedBaseline = useRef(0);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (escalatedAt === null) return;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [escalatedAt]);
   // History for the selected bot has loaded at least once — the hello
   // effect must wait for this, otherwise it fires into the pre-load
   // empty thread on every reload and greets again.
@@ -164,6 +294,11 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   // Live reply text, accumulated from chunk deltas (cloud parity: the reply
   // renders token-by-token while polling, not all-at-once at done).
   const [liveText, setLiveText] = useState('');
+  useEffect(() => {
+    if (escalatedAt !== null && (liveText || entries.length > escalatedBaseline.current)) {
+      setEscalatedAt(null);
+    }
+  }, [escalatedAt, liveText, entries.length]);
   const bottomRef = useRef<HTMLDivElement>(null);
   // History length mirror: parked cards stamp their arrival position so
   // they render interleaved chronologically instead of after all history.
@@ -405,6 +540,10 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
     const a = approvals[index];
     if (!a || a.done) return;
     setApprovals((prev) => prev.map((x, i) => (i === index ? { ...x, done: decision } : x)));
+    if ((decision === 'approve' || decision === 'approve-all') && a.permission === 'spawn_inner_sandbox') {
+      escalatedBaseline.current = entries.length;
+      setEscalatedAt(Date.now());
+    }
     try {
       await decideApproval(a.approvalId, decision);
     } catch (e) {
@@ -598,9 +737,24 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
                         <p className="whitespace-pre-wrap">{m.content}</p>
                       </div>
                     ) : (
-                      <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
-                        <Markdown text={m.content} />
-                      </div>
+                      (() => {
+                        const parsed = parseInnerResult(m.content);
+                        return (
+                          <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
+                            <Markdown text={parsed ? parsed.text || '(attested result below)' : m.content} />
+                            {parsed && (
+                              <EvidenceCard
+                                sandboxId={parsed.attrs.sandbox}
+                                verification={parsed.attrs.verification}
+                                receiptClass={parsed.attrs.receipt}
+                                policy={parsed.attrs.policy}
+                                turn={parsed.attrs.turn}
+                                session={parsed.attrs.session}
+                              />
+                            )}
+                          </div>
+                        );
+                      })()
                     )}
                   </Fragment>
                 ))}
@@ -614,13 +768,17 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
             </div>
           )}
           {busy && !liveText && (
-            <div className="w-fit rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm">
-              <span className="typing-dots flex gap-1">
-                <i className="h-2 w-2 rounded-full bg-slate-400" />
-                <i className="h-2 w-2 rounded-full bg-slate-400" />
-                <i className="h-2 w-2 rounded-full bg-slate-400" />
-              </span>
-            </div>
+            escalatedAt !== null ? (
+              <EscalationTimer since={escalatedAt} />
+            ) : (
+              <div className="w-fit rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm">
+                <span className="typing-dots flex gap-1">
+                  <i className="h-2 w-2 rounded-full bg-slate-400" />
+                  <i className="h-2 w-2 rounded-full bg-slate-400" />
+                  <i className="h-2 w-2 rounded-full bg-slate-400" />
+                </span>
+              </div>
+            )
           )}
           {agentNotes.map((label) => (
             <div key={label} className="msg-in flex items-center gap-2 px-1 text-xs font-semibold text-navy/50">

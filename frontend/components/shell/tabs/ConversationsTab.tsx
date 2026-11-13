@@ -8,9 +8,12 @@ import {
   checkpointBlob,
   conversationKeys,
   listConversations,
+  listSandboxes,
   pushWorkspace,
   relayMessage,
   terminateConversation,
+  terminateSandbox,
+  type SandboxLive,
 } from '@/lib/wayfind';
 import { CopyId, Err, downloadEvidenceBundle } from '../shared';
 
@@ -240,6 +243,8 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
   const [convs, setConvs] = useState<ConversationMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [live, setLive] = useState<SandboxLive[] | null>(null);
+  const [closing, setClosing] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -249,9 +254,21 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
     }
   }, []);
 
+  const refreshLive = useCallback(async () => {
+    try {
+      const out = await listSandboxes();
+      setLive(out.sandboxes ?? []);
+    } catch {
+      setLive([]);
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    refreshLive();
+    const timer = setInterval(() => void refreshLive(), 15000);
+    return () => clearInterval(timer);
+  }, [refresh, refreshLive]);
 
   useEffect(() => {
     if (openRequest) {
@@ -262,6 +279,39 @@ export default function ConversationsSection({ openRequest }: { openRequest: str
 
   return (
     <div>
+      <p className="text-sm font-semibold text-navy">Live inner sandboxes</p>
+      <p className="text-xs text-ink">Open sessions from escalations — transcript and files persist here until closed.</p>
+      <div className="mt-2 space-y-2">
+        {(live ?? []).map((s) => (
+          <div key={s.sandboxId} className="flex items-center justify-between gap-2 rounded-xl border border-navy/10 bg-white px-4 py-2.5">
+            <span className="font-mono text-xs text-navy">
+              <CopyId id={s.sandboxId} /> · {s.profile} · {s.policy}
+            </span>
+            <button
+              type="button"
+              disabled={closing === s.sandboxId}
+              onClick={async () => {
+                setClosing(s.sandboxId);
+                try {
+                  await terminateSandbox(s.sandboxId);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setClosing(null);
+                  void refreshLive();
+                }
+              }}
+              className="shrink-0 rounded-lg bg-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy/90 disabled:opacity-50"
+            >
+              {closing === s.sandboxId ? 'Closing…' : 'Close'}
+            </button>
+          </div>
+        ))}
+        {live !== null && live.length === 0 && (
+          <p className="text-xs text-ink">None open — escalate from a team chat and the session appears here.</p>
+        )}
+      </div>
+      <p className="mt-4 text-sm font-semibold text-navy">Conversations</p>
       <p className="text-sm text-ink">One sandbox = one disposable execution session.</p>
       <Err message={error} />
       <div className="mt-4 space-y-2">

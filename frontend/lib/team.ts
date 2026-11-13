@@ -247,6 +247,10 @@ export async function teamHistory(botId: string): Promise<{ entries: HistoryEntr
   return teamFetch(`/team/history/${botId}`);
 }
 
+export async function teamEvidence(sandboxId: string): Promise<{ evidence: Record<string, unknown> }> {
+  return teamFetch(`/team/evidence/${encodeURIComponent(sandboxId)}`);
+}
+
 export interface ChatStagedRef {
   id: string;
   name: string;

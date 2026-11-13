@@ -19,7 +19,7 @@ import { listInstalledSkills, removeSkill, resolveSkillSource, saveSkillPreview,
 import { listMcpServers, patchMcpServer, removeMcpServer, restartMcpServer, saveMcpServer } from './agent/mcp.js';
 import { transcribeWav, VoiceError } from './voice/transcribe.js';
 import { terminateAllSandboxSessions } from './agent/tools/spawn_inner_sandbox.js';
-import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listTeamBots, readHistory, saveTeamBot, saveTeamConfig, threadHistoryBlock, toRosterEntry, verifyTeamManifest } from './team/store.js';
+import { ensureTeamSeed, deleteTeamBot, getTeamBot, getTeamConfig, listTeamBots, readEvidence, readHistory, saveTeamBot, saveTeamConfig, threadHistoryBlock, toRosterEntry, verifyTeamManifest } from './team/store.js';
 
 /** Browser origin for local dev (Amplify dev server). Loosen only for local. */
 const CORS_ORIGIN = process.env.AGENT_CORS_ORIGIN ?? '*';
@@ -491,6 +491,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     } catch (err) {
       return void json(res, 400, { error: `team history failed: ${err instanceof Error ? err.message : err}` });
     }
+  }
+
+  const teamEvidenceMatch = pathname.match(/^\/team\/evidence\/([A-Za-z0-9-]+)$/);
+  if (teamEvidenceMatch && method === 'GET') {
+    const bundle = readEvidence(teamEvidenceMatch[1]);
+    if (!bundle) return void json(res, 404, { error: 'no evidence for that sandbox (open sessions have none yet — close it first)' });
+    return void json(res, 200, { evidence: bundle });
   }
 
   const teamBotMatch = pathname.match(/^\/team\/bots\/([A-Za-z0-9-]+)$/);

@@ -5,6 +5,9 @@
 //   team/bots/<id>.json        v1 bot record (mirrors the old Bot row fields)
 //   team/history/<id>.jsonl    append-only hash-chained user/assistant turns
 //   team/config.json           team prefs (defaultModel, escalation mode)
+//   team/briefs/<id>.md        pinned briefings (auditable training context)
+//   team/evidence/<sandbox>.json per inner-sandbox run: result + verification
+//                            + receipt (synced like everything else in team/)
 //   team/manifest.json         path -> sha256, written on every save
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -15,6 +18,8 @@ import { WORKSPACE_DIR } from '../core/config.js';
 const TEAM_DIR = join(resolve(WORKSPACE_DIR), 'team');
 const BOTS_DIR = join(TEAM_DIR, 'bots');
 const HISTORY_DIR = join(TEAM_DIR, 'history');
+const BRIEFS_DIR = join(TEAM_DIR, 'briefs');
+const EVIDENCE_DIR = join(TEAM_DIR, 'evidence');
 const CONFIG_PATH = join(TEAM_DIR, 'config.json');
 const MANIFEST_PATH = join(TEAM_DIR, 'manifest.json');
 
@@ -193,6 +198,31 @@ export function saveTeamBot(input: SaveBotInput): TeamBot {
   return bot;
 }
 
+/** Persist one closed inner-sandbox session's evidence bundle. Synced
+ * with everything else under team/; the frontend viewer reads it back.
+ * Overwrites are fine — one file per sandbox, written once at close. */
+export function saveEvidence(sandboxId: string, record: Record<string, unknown>): void {
+  ensureTeamSeed('meta-models/Muse-Spark-Open-816B-A42B');
+  mkdirSync(EVIDENCE_DIR, { recursive: true });
+  const safe = String(sandboxId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 128);
+  if (!safe) throw new Error('bad sandbox id for evidence');
+  writeFileSync(join(EVIDENCE_DIR, `${safe}.json`), JSON.stringify({ v: 1, ...record }, null, 2));
+  writeManifest();
+}
+
+/** Read a stored evidence bundle (frontend viewer path). Null if absent. */
+export function readEvidence(sandboxId: string): Record<string, unknown> | null {
+  const safe = String(sandboxId).replace(/[^A-Za-z0-9-]/g, '').slice(0, 128);
+  if (!safe) return null;
+  const p = join(EVIDENCE_DIR, `${safe}.json`);
+  if (!existsSync(p)) return null;
+  try {
+    return JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 /** Roster shape the agent loop already speaks (@mentions, delegation). */
 export function toRosterEntry(b: TeamBot): { id: string; name: string; role?: string } {
   return { id: b.id, name: b.name, ...(b.role ? { role: b.role } : {}) };
@@ -229,6 +259,8 @@ function collectFiles(): Record<string, string> {
   };
   walk(BOTS_DIR, 'bots');
   walk(HISTORY_DIR, 'history');
+  walk(BRIEFS_DIR, 'briefs');
+  walk(EVIDENCE_DIR, 'evidence');
   try {
     files['config.json'] = sha256Hex(readFileSync(CONFIG_PATH));
   } catch {

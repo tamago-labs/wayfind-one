@@ -205,3 +205,7 @@ export interface SandboxLive {
 export async function listSandboxes(): Promise<{ sandboxes: SandboxLive[] }> {
   return apiFetch('/sandboxes');
 }
+
+export async function terminateSandbox(id: string): Promise<{ ok?: boolean; verified?: boolean; receipt?: unknown; error?: string }> {
+  return apiFetch(`/sandboxes/${encodeURIComponent(id)}/terminate`, { method: 'POST', body: {} });
+}

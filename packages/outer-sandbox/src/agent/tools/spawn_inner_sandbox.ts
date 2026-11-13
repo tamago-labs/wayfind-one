@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { guarded, type GuardOpts } from '../../core/guard.js';
 import { WORKSPACE_DIR } from '../../core/config.js';
-import { getTeamBot, getTeamConfig } from '../../team/store.js';
+import { getTeamBot, getTeamConfig, saveEvidence } from '../../team/store.js';
 
 /** The only model an inner sandbox boots (control plane pins it too). */
 const INNER_MODEL = 'Qwen/Qwen3.8-27B';
@@ -31,6 +31,7 @@ interface Session {
   sandboxId: string;
   lastUsedAt: number;
   turns: number;
+  goals: string[];
 }
 
 const sessions = new Map<string, Session>();
@@ -96,30 +97,70 @@ function botBriefBlock(opts: GuardOpts): { system: string; briefHash: string | n
   }
 }
 
-async function terminateSession(api: ApiCtx, sid: string, goalHash: string): Promise<{ verified: boolean; receiptClass: string }> {
+interface Closeout {
+  verified: boolean;
+  receiptClass: string;
+  receipt?: unknown;
+  evidence?: unknown;
+}
+
+async function terminateSession(api: ApiCtx, sid: string, goalHash: string): Promise<Closeout> {
   try {
     const t = await postJson(api, `/sandboxes/${sid}/terminate`, {
       ...(api.computerId ? { computerId: api.computerId } : {}),
       goalHash,
     });
-    const d = t.data as { verified?: boolean; receipt?: { class?: string } };
-    return { verified: t.ok && d.verified === true, receiptClass: d.receipt?.class ?? 'unknown' };
+    const d = t.data as { verified?: boolean; receipt?: { class?: string } & Record<string, unknown>; evidence?: unknown };
+    return {
+      verified: t.ok && d.verified === true,
+      receiptClass: d.receipt?.class ?? 'unknown',
+      receipt: d.receipt,
+      evidence: d.evidence,
+    };
   } catch {
     return { verified: false, receiptClass: 'unknown' };
   }
+}
+
+/** Close + persist evidence + drop from the registry. Every close path
+ * (explicit, idle, computer terminate) funnels through here so no session
+ * ends without a stored bundle. */
+async function closeSessionWithEvidence(
+  api: ApiCtx,
+  key: string,
+  s: Session,
+  goalHash: string,
+  reason: string,
+): Promise<Closeout> {
+  const out = await terminateSession(api, s.sandboxId, goalHash);
+  sessions.delete(key);
+  try {
+    saveEvidence(s.sandboxId, {
+      sandboxId: s.sandboxId,
+      thread: key,
+      turns: s.turns,
+      goalHashes: s.goals,
+      closedAt: new Date().toISOString(),
+      closeReason: reason,
+      receipt: out.receipt ?? null,
+      evidence: out.evidence ?? null,
+    });
+  } catch (err) {
+    console.error('[spawn_inner_sandbox] evidence save failed:', err instanceof Error ? err.message : String(err));
+  }
+  return out;
 }
 
 /** Close every session this process holds (computer terminate hook). */
 export async function terminateAllSandboxSessions(): Promise<void> {
   const api = apiCtx({} as GuardOpts);
   if ('missing' in api) return;
-  for (const [key, s] of sessions) {
+  for (const [key, s] of [...sessions]) {
     try {
-      await terminateSession(api, s.sandboxId, `close-all:${key}`);
+      await closeSessionWithEvidence(api, key, s, `close-all:${key}`, 'computer-terminate');
     } catch {
       // Best-effort — the VM idle TTL is the backstop.
     }
-    sessions.delete(key);
   }
 }
 
@@ -138,8 +179,7 @@ async function runEscalation(
   const cached = sessions.get(key);
   if (cached) {
     if (Date.now() - cached.lastUsedAt > SESSION_IDLE_MS || cached.turns >= SESSION_MAX_TURNS) {
-      await terminateSession(api, cached.sandboxId, goalHash);
-      sessions.delete(key);
+      await closeSessionWithEvidence(api, key, cached, goalHash, 'idle-or-budget');
     } else {
       const msg = await postJson(api, `/sandboxes/${cached.sandboxId}/message`, {
         ...(api.computerId ? { computerId: api.computerId } : {}),
@@ -152,13 +192,13 @@ async function runEscalation(
         if (!res.error) {
           cached.lastUsedAt = Date.now();
           cached.turns += 1;
+          cached.goals.push(goalHash);
           const verification = res.verification
             ? `${res.verification.kind ?? 'unknown'}, signature ${res.verification.valid === true ? 'valid' : 'NOT valid'}`
             : 'none reported';
           return (
-            `<inner_result sandbox="${cached.sandboxId}" turn="${cached.turns}" session="open" policy="verified_inference (enforced inside)">\n` +
+            `<inner_result sandbox="${cached.sandboxId}" turn="${cached.turns}" session="open" policy="verified_inference (enforced inside)" verification="${verification}">\n` +
             `${typeof res.text === 'string' && res.text ? res.text : '(empty result)'}\n` +
-            `${verification}\n` +
             `</inner_result>`
           );
         }
@@ -216,14 +256,13 @@ async function runEscalation(
   if (!runData || runData.error) {
     return fail(`Inner sandbox returned an error, session closed: \`${JSON.stringify(runData?.error ?? 'empty result').slice(0, 300)}\`.`);
   }
-  sessions.set(key, { sandboxId: sid, lastUsedAt: Date.now(), turns: 1 });
+  sessions.set(key, { sandboxId: sid, lastUsedAt: Date.now(), turns: 1, goals: [goalHash] });
   const verification = runData.verification
     ? `${runData.verification.kind ?? 'unknown'}, signature ${runData.verification.valid === true ? 'valid' : 'NOT valid'}`
     : 'none reported';
   return (
-    `<inner_result sandbox="${sid}" turn="1" session="open" policy="${spawned.policy?.securityLevel ?? 'verified_inference'} (enforced inside)">\n` +
+    `<inner_result sandbox="${sid}" turn="1" session="open" policy="${spawned.policy?.securityLevel ?? 'verified_inference'} (enforced inside)" verification="${verification}">\n` +
     `${typeof runData.text === 'string' && runData.text ? runData.text : '(empty result)'}\n` +
-    `${verification}\n` +
     `</inner_result>`
   );
 }
@@ -291,9 +330,11 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
         if (!s) return 'No open inner sandbox for this thread — nothing to close.';
         const api = apiCtx(opts);
         if ('missing' in api) return `Cannot close: inner sandboxes aren't available (${api.missing}).`;
-        sessions.delete(key);
-        const out = await terminateSession(api, s.sandboxId, `close:${key}`);
-        return `Inner sandbox ${s.sandboxId} closed after ${s.turns} turn(s): kill ${out.verified ? 'verified' : 'UNVERIFIED'}, receipt ${out.receiptClass}.`;
+        const out = await closeSessionWithEvidence(api, key, s, `close:${key}`, 'explicit');
+        return (
+          `Inner sandbox ${s.sandboxId} closed after ${s.turns} turn(s): kill ${out.verified ? 'verified' : 'UNVERIFIED'}, receipt ${out.receiptClass}. Evidence saved — open it from the View evidence button.\n` +
+          `<inner_result sandbox="${s.sandboxId}" session="closed" policy="verified_inference (enforced inside)" receipt="${out.receiptClass}">closed</inner_result>`
+        );
       },
       opts,
     ),
