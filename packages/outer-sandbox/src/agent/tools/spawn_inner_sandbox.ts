@@ -424,9 +424,11 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
           const api = apiCtx(opts);
           if ('missing' in api) return `Cannot close: inner sandboxes aren't available (${api.missing}).`;
           const out = await closeSessionWithEvidence(api, key, s, `close:${key}`, 'explicit');
+          const closeoutBlock = `\n<closeout sandbox="${s.sandboxId}" turns="${s.turns}" verified="${out.verified}" receipt="${out.receiptClass}"></closeout>`;
           return (
             `Inner sandbox ${s.sandboxId} closed after ${s.turns} turn(s): kill ${out.verified ? 'verified' : 'UNVERIFIED'}, receipt ${out.receiptClass}. ` +
-            (out.saved ? 'Evidence saved — open it from the evidence card below or Sessions → verify.' : 'Nothing preserved — the session never ran.')
+            (out.saved ? 'Evidence saved — open it from the evidence card below or Sessions → verify.' : 'Nothing preserved — the session never ran.') +
+            (out.saved ? closeoutBlock : '')
           );
         }
         // No cached session (e.g. computer restarted after spawning): fall
@@ -445,9 +447,11 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
         // Run count unknown after a restart — pass -1 so closeout records
         // turns: null instead of a misleading 0.
         const out = await closeSessionWithEvidence(api, key, { sandboxId: sid, lastUsedAt: Date.now(), turns: -1, goals: [] }, `close:${key}`, 'explicit-uncached');
+        const closeoutBlock = `\n<closeout sandbox="${sid}" verified="${out.verified}" receipt="${out.receiptClass}"></closeout>`;
         return (
           `Inner sandbox ${sid} closed (verified=${out.verified}, receipt ${out.receiptClass}). ` +
-          (out.saved ? 'Evidence saved — open it from the evidence card below or Sessions → verify.' : 'Nothing preserved — the session never ran.')
+          (out.saved ? 'Evidence saved — open it from the evidence card below or Sessions → verify.' : 'Nothing preserved — the session never ran.') +
+          (out.saved ? closeoutBlock : '')
         );
       },
       opts,

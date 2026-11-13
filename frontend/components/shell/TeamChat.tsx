@@ -6,6 +6,7 @@ import Mascot from '@/components/Mascot';
 import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun, type ChatStagedRef } from '@/lib/team';
 import Markdown from './Markdown';
 import VoiceModal from './VoiceModal';
+import EvidenceDrawer from './EvidenceDrawer';
 import VerificationDrawer from './VerificationDrawer';
 import { toVerificationReports } from '@/lib/verifyReports';
 import { Err, CopyId } from './shared';
@@ -36,6 +37,17 @@ const greetedBots = new Set<string>();
 
 function visibleEntries(entries: HistoryEntry[]): HistoryEntry[] {
   return entries.filter((e) => !(e.role === 'user' && e.content.startsWith(HELLO_PREFIX)));
+}
+
+/** Split a trailing <closeout …>…</closeout> block (emitted by the close
+ * tool) from prose — same shape as parseInnerResult, renders a working
+ * evidence card for the now-closed session. */
+function parseCloseout(content: string): { text: string; attrs: Record<string, string> } | null {
+  const m = content.match(/<closeout([^>]*)>[\s\S]*?<\/closeout>\s*$/);
+  if (!m) return null;
+  const attrs: Record<string, string> = {};
+  for (const am of m[1].matchAll(/([a-zA-Z-]+)="([^"]*)"/g)) attrs[am[1]] = am[2];
+  return { text: content.slice(0, m.index).trim(), attrs };
 }
 
 /** Split a trailing <inner_result …>…</inner_result> block (emitted by the
@@ -88,19 +100,19 @@ function EscalationTimer({ since, onDismiss }: { since: number; onDismiss: () =>
  * sandbox, compact re-quotes after that. Module-level: sandbox ids are unique. */
 const renderedEvidenceCards = new Set<string>();
 
-function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptClass, onOpenVerify }: { sandboxId?: string; verification?: string; policy?: string; turn?: string; session?: string; receiptClass?: string; onOpenVerify?: (id: string) => void }) {
+function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptClass, forceFull, onOpenVerify }: { sandboxId?: string; verification?: string; policy?: string; turn?: string; session?: string; receiptClass?: string; forceFull?: boolean; onOpenVerify?: (id: string) => void }) {
   const [fullCard] = useState(() => {
     if (!sandboxId) return true;
-    if (renderedEvidenceCards.has(sandboxId)) return false;
-    renderedEvidenceCards.add(sandboxId);
-    return true;
+    if (forceFull || !renderedEvidenceCards.has(sandboxId)) {
+      renderedEvidenceCards.add(sandboxId);
+      return true;
+    }
+    return false;
   });
-  const [open, setOpen] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [bundle, setBundle] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const loadBundle = async (): Promise<boolean> => {
     if (bundle) return true;
@@ -125,13 +137,8 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
       setLoading(false);
     }
   };
-  const toggle = async () => {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    setOpen(true);
-    await loadBundle();
+  const openEvidence = async () => {
+    if (await loadBundle()) setEvidenceOpen(true);
   };
   const openDrawer = async () => {
     if (await loadBundle()) setDrawerOpen(true);
@@ -139,36 +146,12 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
   const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string }; model?: string; provisionedAt?: string; terminatedAt?: string } | undefined;
   const evidenceModel = typeof receipt?.model === 'string' && receipt.model ? receipt.model : 'Qwen/Qwen3.8-27B';
   const widgetReports = useMemo(() => {
-    if ((!open && !drawerOpen) || !bundle) return null;
+    if (!drawerOpen || !bundle) return null;
     const ev = (bundle as { evidence?: unknown }).evidence as {
       botEvidence?: { preflight?: { nonce?: string; model?: string; nodes?: number; nonceEchoed?: boolean; modelTee?: string[]; gateway?: string[]; nvidia?: { overall?: boolean; nonceMatch?: boolean | null; gpus?: number } | null }; messages?: Array<{ seq?: number; chatId?: string | null; checked?: boolean; kind?: string; valid?: boolean; signer?: string | null; signedText?: string | null; signature?: string | null }> };
     } | undefined;
     return toVerificationReports(evidenceModel, ev?.botEvidence ?? null);
-  }, [open, drawerOpen, bundle, evidenceModel]);
-  const transcript = Array.isArray(bundle?.transcript) ? (bundle?.transcript as Array<{ seq?: number; role?: string; content?: string }>) : [];
-  const downloadBundle = () => {
-    if (!bundle) return;
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `wayfind-evidence-${(sandboxId ?? 'sandbox').slice(0, 8)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-  const att = (bundle?.evidence as { botEvidence?: { preflight?: { nodes?: number; model?: string; nvidia?: { gpus?: number } | null }; messages?: Array<{ checked?: boolean; valid?: boolean; kind?: string }>; parsing?: Array<{ path?: string; kind?: string }> } } | undefined)?.botEvidence;
-  const steps = att?.messages ?? [];
-  const validSteps = steps.filter((m) => m?.checked && m.valid === true).length;
-  const badSteps = steps.filter((m) => m?.checked && m.valid !== true).length;
-  const gpus = typeof att?.preflight?.nvidia === 'object' && att?.preflight?.nvidia !== null && 'gpus' in (att.preflight.nvidia as object) ? (att.preflight.nvidia as { gpus?: number }).gpus : undefined;
-  const runMs = (() => {
-    const t0 = receipt?.provisionedAt ? Date.parse(receipt.provisionedAt) : NaN;
-    const t1 = receipt?.terminatedAt ? Date.parse(receipt.terminatedAt) : NaN;
-    return Number.isFinite(t0) && Number.isFinite(t1) && t1 >= t0 ? t1 - t0 : null;
-  })();
-  const runDur = runMs === null ? null : runMs < 60000 ? `${Math.round(runMs / 1000)}s` : `${Math.floor(runMs / 60000)}m ${Math.round((runMs % 60000) / 1000)}s`;
+  }, [drawerOpen, bundle, evidenceModel]);
   const verificationOk = verification ? !/INVALID|unchecked/i.test(verification) : null;
   if (!fullCard) {
     return (
@@ -211,21 +194,20 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
         {sandboxId && <CopyId id={sandboxId} />}
       </p>
       {policy && <p className="mt-0.5 text-ink">Policy: {policy}</p>}
+      {session === 'open' && !bundle && (
+        <p className="mt-0.5 text-ink">Evidence, decrypted history and the NEAR Center unlock when this session closes.</p>
+      )}
       <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-semibold">
-        <button type="button" onClick={toggle} className="text-cta hover:underline">
-          {open ? 'Hide evidence' : 'View evidence'}
+        <button type="button" onClick={() => void openEvidence()} className="text-cta hover:underline">
+          View evidence
         </button>
-        {bundle && transcript.length > 0 && (
-          <button type="button" onClick={() => setShowHistory((v) => !v)} className="text-cta hover:underline">
-            {showHistory ? 'Hide history' : `Load history (${transcript.length} turns, decrypted)`}
-          </button>
-        )}
-        {bundle && (
-          <button type="button" onClick={downloadBundle} className="text-cta hover:underline">
-            Download bundle
-          </button>
-        )}
-        <button type="button" onClick={() => void openDrawer()} className="text-cta hover:underline">
+        <button
+          type="button"
+          onClick={() => void openDrawer()}
+          disabled={!bundle}
+          title={!bundle ? 'Available after this session closes' : undefined}
+          className="text-cta hover:underline disabled:cursor-not-allowed disabled:text-navy/30 disabled:no-underline"
+        >
           NEAR Verification Center
         </button>
         {sandboxId && onOpenVerify && (
@@ -234,57 +216,9 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
           </button>
         )}
       </span>
-      {open && (
-        <div className="mt-1 rounded-lg bg-white p-2">
-          {loading && <p className="text-ink">Loading evidence…</p>}
-          {error && <p className="font-semibold text-red-700">Failed: {error}</p>}
-          {!loading && !error && !bundle && <p className="text-ink">No stored bundle yet — close the sandbox session first.</p>}
-          {bundle && (
-            <>
-              <p>
-                Checked inference · {att?.preflight?.nodes ?? '?'} TEE node(s)
-                {typeof gpus === 'number' ? ` · ${gpus} NVIDIA GPU(s)` : ''}
-                {att?.preflight?.model ? ` · ${att.preflight.model}` : ''}
-                {runDur ? ` · ran in ${runDur}` : ''}
-              </p>
-              {steps.length > 0 && (
-                <p className="mt-0.5">
-                  {validSteps} of {steps.length} step(s) verified
-                  {badSteps > 0 && <span className="font-semibold text-red-700"> · {badSteps} INVALID</span>}
-                </p>
-              )}
-              <button type="button" onClick={() => setShowDetails((v) => !v)} className="mt-1 font-semibold text-cta hover:underline">
-                {showDetails ? 'Hide technical details' : 'Technical details'}
-              </button>
-              {showDetails && (
-                <div className="mt-1 space-y-0.5">
-                  {steps.map((v, i) => (
-                    <p key={i} className="font-mono">
-                      turn {i + 1}: {v.kind ?? '?'} · signature {v.valid === true ? 'valid' : v.checked === false ? 'unchecked' : 'INVALID'}
-                    </p>
-                  ))}
-                  {Array.isArray(att?.parsing) && att.parsing.length > 0 && (
-                    <p>File reading (non-attested utility): {att.parsing.map((p) => `${p.path ?? '?'} (${p.kind ?? '?'})`).join(', ')}</p>
-                  )}
-                  {receipt?.signature && (
-                    <p className="break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
-                  )}
-                </div>
-              )}
-              {showHistory && transcript.length > 0 && (
-                <div className="mt-1 space-y-1 border-t border-navy/10 pt-1.5">
-                  {transcript.map((t, i) => (
-                    <p key={t.seq ?? i} className={t.role === 'user' ? 'text-ink' : ''}>
-                      <span className="font-semibold text-navy">{t.role === 'user' ? 'You' : 'Sandbox'}: </span>
-                      <span className="whitespace-pre-wrap">{String(t.content ?? '').slice(0, 2000)}{String(t.content ?? '').length > 2000 ? '…' : ''}</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      {loading && <p className="mt-1 text-ink">Loading evidence…</p>}
+      {error && <p className="mt-1 font-semibold text-red-700">{error}</p>}
+      <EvidenceDrawer open={evidenceOpen} onClose={() => setEvidenceOpen(false)} bundle={bundle} sandboxId={sandboxId} />
       <VerificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} reports={widgetReports} />
     </div>
   );
@@ -894,25 +828,37 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
                         <p className="whitespace-pre-wrap">{m.content}</p>
                       </div>
                     ) : (
-                      (() => {
-                        const parsed = parseInnerResult(m.content);
-                        return (
-                          <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
-                            <Markdown text={parsed ? parsed.text || '(attested result below)' : m.content} />
-                      {parsed && (
-                        <EvidenceCard
-                          sandboxId={parsed.attrs.sandbox}
-                          verification={parsed.attrs.verification}
-                          receiptClass={parsed.attrs.receipt}
-                          policy={parsed.attrs.policy}
-                          turn={parsed.attrs.turn}
-                          session={parsed.attrs.session}
-                          onOpenVerify={onOpenVerify}
-                        />
-                      )}
-                          </div>
-                        );
-                      })()
+                  (() => {
+                    const parsed = parseInnerResult(m.content);
+                    const closed = !parsed ? parseCloseout(m.content) : null;
+                    const text = parsed ? parsed.text || '(attested result below)' : closed ? closed.text : m.content;
+                    return (
+                      <div className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm bg-white px-4 py-2.5 text-navy shadow-sm">
+                        <Markdown text={text} />
+                        {parsed && (
+                          <EvidenceCard
+                            sandboxId={parsed.attrs.sandbox}
+                            verification={parsed.attrs.verification}
+                            receiptClass={parsed.attrs.receipt}
+                            policy={parsed.attrs.policy}
+                            turn={parsed.attrs.turn}
+                            session={parsed.attrs.session}
+                            onOpenVerify={onOpenVerify}
+                          />
+                        )}
+                        {closed && closed.attrs.sandbox && (
+                          <EvidenceCard
+                            sandboxId={closed.attrs.sandbox}
+                            receiptClass={closed.attrs.receipt}
+                            turn={closed.attrs.turns}
+                            session="closed"
+                            forceFull
+                            onOpenVerify={onOpenVerify}
+                          />
+                        )}
+                      </div>
+                    );
+                  })()
                     )}
                   </Fragment>
                 ))}

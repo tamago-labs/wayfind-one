@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import VerificationWidget from '@/components/VerificationWidget';
+import VerificationDrawer from '../VerificationDrawer';
 import { checkReceipt } from '@/lib/receipt';
 import { toVerificationReports, type WidgetReport } from '@/lib/verifyReports';
 import { listConversations, verifyReceiptServer } from '@/lib/wayfind';
@@ -20,12 +20,14 @@ export default function VerifySection({ initialId }: { initialId?: string | null
   const [checking, setChecking] = useState(false);
   const [serverCheck, setServerCheck] = useState<{ valid?: boolean; kid?: string; signerMatch?: boolean; checks?: Array<{ name: string; pass: boolean; detail?: string }>; reason?: string } | null>(null);
   const [widgetReports, setWidgetReports] = useState<WidgetReport[] | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   async function runWith(raw: string) {
     setError(null);
     setResult(null);
     setServerCheck(null);
     setWidgetReports(null);
+    setDrawerOpen(false);
     const trimmed = raw.trim();
     if (!trimmed) {
       setError('Paste a receipt JSON or a sandbox id.');
@@ -124,9 +126,9 @@ export default function VerifySection({ initialId }: { initialId?: string | null
             {serverCheck.valid ? 'SIGNATURE VALID' : 'SIGNATURE NOT VERIFIED'}
           </p>
           {serverCheck.valid && widgetReports && (
-            <div className="mt-3 rounded-lg bg-mist p-2">
-              <VerificationWidget reports={widgetReports} />
-            </div>
+            <button onClick={() => setDrawerOpen(true)} className="mt-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-cta shadow-sm ring-1 ring-navy/15 hover:bg-slate-50">
+              Open in NEAR Verification Center
+            </button>
           )}
         </div>
       )}
@@ -144,6 +146,7 @@ export default function VerifySection({ initialId }: { initialId?: string | null
           </p>
         </div>
       )}
+      <VerificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} reports={widgetReports} />
     </div>
   );
 }

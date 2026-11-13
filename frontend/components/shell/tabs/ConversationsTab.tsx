@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import VerificationWidget from '@/components/VerificationWidget';
+import VerificationDrawer from '../VerificationDrawer';
+import EvidenceDrawer from '../EvidenceDrawer';
 import { toVerificationReports, type WidgetReport } from '@/lib/verifyReports';
 import {
   listSandboxes,
@@ -45,7 +46,10 @@ function shortModel(m: string | null): string | null {
   const [closed, setClosed] = useState<ClosedSandboxRun[] | null>(null);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verified, setVerified] = useState<Record<string, { ok: boolean; detail: string }>>({});
-  const [widgetOpen, setWidgetOpen] = useState<Record<string, boolean>>({});
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [evId, setEvId] = useState<string | null>(null);
+  const [evBundle, setEvBundle] = useState<Record<string, unknown> | null>(null);
+  const [evLoading, setEvLoading] = useState<string | null>(null);
   const [widgetData, setWidgetData] = useState<Record<string, { reports: WidgetReport[] } | { error: string }>>({});
   const [widgetLoading, setWidgetLoading] = useState<string | null>(null);
 
@@ -88,26 +92,47 @@ function shortModel(m: string | null): string | null {
     }
   }
 
-  async function toggleWidget(sandboxId: string) {
-    const next = !widgetOpen[sandboxId];
-    setWidgetOpen((p) => ({ ...p, [sandboxId]: next }));
-    if (!next || widgetData[sandboxId]) return;
-    setWidgetLoading(sandboxId);
+  async function openEvidence(sandboxId: string) {
+    setEvLoading(sandboxId);
     try {
       const out = await teamEvidence(sandboxId);
-      // Stored bundle nests the inner attestations two levels down:
-      // { receipt, evidence: { checkpoint, botEvidence: { preflight, … } } }.
-      const stored = (out.evidence ?? {}) as {
-        receipt?: { model?: string };
-        evidence?: { botEvidence?: Parameters<typeof toVerificationReports>[1] };
-      };
-      const model = typeof stored.receipt?.model === 'string' && stored.receipt.model ? stored.receipt.model : 'Qwen/Qwen3.8-27B';
-      setWidgetData((p) => ({ ...p, [sandboxId]: { reports: toVerificationReports(model, stored.evidence?.botEvidence ?? null) } }));
+      const ev = (out.evidence ?? null) as Record<string, unknown> | null;
+      if (ev) {
+        setEvBundle(ev);
+        setEvId(sandboxId);
+      } else {
+        setError('No stored evidence for that sandbox yet — close the session first (Sessions → Close).');
+      }
     } catch (e) {
-      setWidgetData((p) => ({ ...p, [sandboxId]: { error: e instanceof Error ? e.message : String(e) } }));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setWidgetLoading(null);
+      setEvLoading(null);
     }
+  }
+
+  async function openDrawer(sandboxId: string) {
+    if (!widgetData[sandboxId]) {
+      setWidgetLoading(sandboxId);
+      try {
+        const out = await teamEvidence(sandboxId);
+        // Stored bundle nests the inner attestations two levels down:
+        // { receipt, evidence: { checkpoint, botEvidence: { preflight, … } } }.
+        const stored = (out.evidence ?? {}) as {
+          receipt?: { model?: string };
+          evidence?: { botEvidence?: Parameters<typeof toVerificationReports>[1] };
+        };
+        const model = typeof stored.receipt?.model === 'string' && stored.receipt.model ? stored.receipt.model : 'Qwen/Qwen3.8-27B';
+        setWidgetData((p) => ({ ...p, [sandboxId]: { reports: toVerificationReports(model, stored.evidence?.botEvidence ?? null) } }));
+      } catch (e) {
+        setWidgetData((p) => ({ ...p, [sandboxId]: { error: e instanceof Error ? e.message : String(e) } }));
+        return;
+      } finally {
+        setWidgetLoading(null);
+      }
+    } else if ('error' in widgetData[sandboxId]) {
+      return;
+    }
+    setDrawerId(sandboxId);
   }
 
   useEffect(() => {
@@ -182,6 +207,14 @@ function shortModel(m: string | null): string | null {
                 <span className="flex shrink-0 gap-1.5">
                   <button
                     type="button"
+                    disabled={evLoading === c.sandboxId}
+                    onClick={() => void openEvidence(c.sandboxId)}
+                    className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-navy shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {evLoading === c.sandboxId ? 'Loading…' : 'Evidence'}
+                  </button>
+                  <button
+                    type="button"
                     disabled={verifying === c.sandboxId}
                     onClick={() => void verifyClosed(c.sandboxId)}
                     className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-navy shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
@@ -191,10 +224,10 @@ function shortModel(m: string | null): string | null {
                   <button
                     type="button"
                     disabled={widgetLoading === c.sandboxId}
-                    onClick={() => void toggleWidget(c.sandboxId)}
+                    onClick={() => void openDrawer(c.sandboxId)}
                     className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-cta shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    {widgetLoading === c.sandboxId ? 'Loading…' : widgetOpen[c.sandboxId] ? 'Hide NEAR widget' : 'NEAR widget'}
+                    {widgetLoading === c.sandboxId ? 'Loading…' : 'NEAR widget'}
                   </button>
                 </span>
               </div>
@@ -203,14 +236,8 @@ function shortModel(m: string | null): string | null {
                   {verified[c.sandboxId].ok ? 'Signature verified · signed by Wayfind' : `NOT VERIFIED · ${verified[c.sandboxId].detail}`}
                 </p>
               )}
-              {widgetOpen[c.sandboxId] && widgetData[c.sandboxId] && (
-                <div className="mt-2 rounded-lg bg-mist p-2">
-                  {'error' in widgetData[c.sandboxId] ? (
-                    <p className="text-xs text-red-700">{(widgetData[c.sandboxId] as { error: string }).error}</p>
-                  ) : (
-                    <VerificationWidget reports={(widgetData[c.sandboxId] as { reports: WidgetReport[] }).reports} />
-                  )}
-                </div>
+              {widgetData[c.sandboxId] && 'error' in widgetData[c.sandboxId] && (
+                <p className="mt-1 text-xs text-red-700">{(widgetData[c.sandboxId] as { error: string }).error}</p>
               )}
             </div>
           );
@@ -219,6 +246,12 @@ function shortModel(m: string | null): string | null {
           <p className="text-xs text-ink">No closed runs yet — close a session and its signed receipt lands here.</p>
         )}
       </div>
+      <VerificationDrawer
+        open={drawerId !== null}
+        onClose={() => setDrawerId(null)}
+        reports={drawerId !== null && widgetData[drawerId] && !('error' in widgetData[drawerId]) ? (widgetData[drawerId] as { reports: WidgetReport[] }).reports : null}
+      />
+      <EvidenceDrawer open={evId !== null} onClose={() => { setEvId(null); setEvBundle(null); }} bundle={evBundle} sandboxId={evId ?? undefined} />
     </div>
   );
 }
