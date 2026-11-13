@@ -136,8 +136,30 @@ export async function pushWorkspace(ctx: SyncCtx): Promise<{ pushed: number; byt
   return { pushed, bytes, skippedLarge, unchanged };
 }
 
-export async function pullWorkspace(ctx: SyncCtx): Promise<{ pulled: number; skipped: number }> {
-  const listRes = await syncFetch(ctx, 'download-urls', {});
+/** Durable delete: removes paths from the backend workspace so a later
+ * restore can't resurrect them (push only uploads what exists locally;
+ * pull re-downloads anything in S3 that's missing — without this, every
+ * delete is undone by the next reprovision). Prunes the local manifest too.
+ * Throws on failure: callers must NOT unlink locally until this succeeds. */
+export async function deleteWorkspacePaths(ctx: SyncCtx, paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const res = await syncFetch(ctx, 'delete', { paths });
+  const data = (await res.json()) as { deleted?: number; error?: string };
+  if (typeof data.deleted !== 'number') {
+    throw new Error(`sync/delete: unexpected response`);
+  }
+  const manifest = loadManifest();
+  let dirty = false;
+  for (const p of paths) {
+    if (p in manifest) {
+      delete manifest[p];
+      dirty = true;
+    }
+  }
+  if (dirty) saveManifest(manifest);
+}
+
+export async function pullWorkspace(ctx: SyncCtx): Promise<{ pulled: number; skipped: number }> {  const listRes = await syncFetch(ctx, 'download-urls', {});
   const { files } = (await listRes.json()) as { files?: Array<{ path: string; size: number; url: string }> };
   const manifest = loadManifest();
   let manifestDirty = false;

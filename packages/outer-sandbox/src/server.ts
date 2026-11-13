@@ -10,7 +10,7 @@ import { hasSearchKey } from './agent/tools/web.js';
 import { initProvider, reinitProvider } from './providers/provider.js';
 import { loadCatalog, resolveApiKey, clearProviderCache } from './providers/providers.js';
 import { writeKey } from './providers/keystore.js';
-import { pullWorkspace, pushWorkspace, type SyncCtx } from './cloud/sync.js';
+import { deleteWorkspacePaths, pullWorkspace, pushWorkspace, type SyncCtx } from './cloud/sync.js';
 import { loadRules, saveRules, undoRules, canUndoRules } from './core/permissions.js';
 import { getRun, getHistory, listPendingApprovals, listPendingBotRequests,
   listPendingQuestions, listRuns, resolveApproval, answerBotRequest, answerQuestion, startRun, onRunSettled } from './runs/runner.js';
@@ -502,7 +502,21 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   const teamBotMatch = pathname.match(/^\/team\/bots\/([A-Za-z0-9-]+)$/);
   if (teamBotMatch && method === 'DELETE') {
-    const ok = deleteTeamBot(teamBotMatch[1]);
+    const botId = teamBotMatch[1];
+    if (!getTeamBot(botId)) return void json(res, 404, { error: 'unknown bot' });
+    // Durable delete: S3 FIRST, local unlink only on success. Reversing the
+    // order resurrects the bot on the next reprovision (pull re-downloads
+    // anything in S3 that's missing locally). Without sync configured
+    // (local dev), local-only delete is the honest fallback.
+    const ctx = syncCtx();
+    if (ctx) {
+      try {
+        await deleteWorkspacePaths(ctx, [`team/bots/${botId}.json`, `team/history/${botId}.jsonl`]);
+      } catch (err) {
+        return void json(res, 502, { error: `delete failed upstream — bot kept: ${err instanceof Error ? err.message : err}` });
+      }
+    }
+    const ok = deleteTeamBot(botId);
     return void json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown bot' });
   }
 

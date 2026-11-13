@@ -286,8 +286,8 @@ export function createSpawnInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
       'preflight must pass, and only the run allowlist models can infer — the sandbox refuses otherwise. ' +
       'One open session per thread: the first call spawns, follow-ups reuse the live sandbox (transcript + files persist). ' +
       'File references are opaque staged ids from the user message — you never see file bytes. ' +
-      'Use for sensitive files or data that must never land on this computer. ' +
-      'This is a bounded blocking call — you stay responsible for the final answer; relay the result in your own words. ' +
+      'This is a bounded blocking call — you stay responsible for the final answer. ' +
+      'Relay the result in your own words, then quote the <inner_result> block VERBATIM at the very end (it carries the verifiable receipt for the UI). ' +
       'Only name staged files listed in your context, never invent ids.',
     parameters: z.object({
       goal: z.string().describe('What the inner sandbox should do, as a self-contained task'),
