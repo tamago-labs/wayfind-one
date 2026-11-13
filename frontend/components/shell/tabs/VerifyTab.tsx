@@ -1,10 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import VerificationWidget from '@/components/VerificationWidget';
 import { checkReceipt } from '@/lib/receipt';
+import { toVerificationReports, type WidgetReport } from '@/lib/verifyReports';
 import { listConversations, verifyReceiptServer } from '@/lib/wayfind';
 import { teamEvidence } from '@/lib/team';
 import { Err } from '../shared';
+
+type BundleEvidence = {
+  receipt?: { model?: string };
+  botEvidence?: Parameters<typeof toVerificationReports>[1];
+};
 
 export default function VerifySection({ initialId }: { initialId?: string | null }) {
   const [input, setInput] = useState('');
@@ -12,31 +19,35 @@ export default function VerifySection({ initialId }: { initialId?: string | null
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [serverCheck, setServerCheck] = useState<{ valid?: boolean; kid?: string; signerMatch?: boolean; checks?: Array<{ name: string; pass: boolean; detail?: string }>; reason?: string } | null>(null);
+  const [widgetReports, setWidgetReports] = useState<WidgetReport[] | null>(null);
 
   async function runWith(raw: string) {
     setError(null);
     setResult(null);
     setServerCheck(null);
+    setWidgetReports(null);
     const trimmed = raw.trim();
     if (!trimmed) {
-      setError('Paste a receipt JSON, a conversation id, or a sandbox id.');
+      setError('Paste a receipt JSON or a sandbox id.');
       return;
     }
     try {
       let receipt: unknown = null;
+      let bundle: BundleEvidence | null = null;
       if (trimmed.startsWith('{')) {
         receipt = JSON.parse(trimmed);
       } else if (/^microvm-[A-Za-z0-9-]+$/.test(trimmed)) {
         // Inner sandbox run: receipt lives in the outer's stored evidence
-        // bundle (same id you see in chat and the Sandboxes panel).
+        // bundle (same id you see in chat and the Sessions tab).
         try {
           const out = await teamEvidence(trimmed);
+          bundle = (out.evidence as unknown as BundleEvidence | null) ?? null;
           receipt = (out.evidence as { receipt?: unknown })?.receipt ?? null;
         } catch {
           receipt = null;
         }
         if (!receipt) {
-          setError('No stored evidence for that sandbox yet — close the session first (Sandboxes panel → Close), then verify.');
+          setError('No stored evidence for that sandbox yet — close the session first (Sessions → Close), then verify.');
           return;
         }
       } else {
@@ -52,7 +63,13 @@ export default function VerifySection({ initialId }: { initialId?: string | null
       if ((receipt as { class?: string; signature?: { sig?: string } })?.class === 'signed') {
         setChecking(true);
         try {
-          setServerCheck(await verifyReceiptServer(receipt));
+          const check = await verifyReceiptServer(receipt);
+          setServerCheck(check);
+          if (bundle && check.valid === true) {
+            const r = receipt as { model?: string };
+            const model = typeof r.model === 'string' && r.model ? r.model : 'Qwen/Qwen3.8-27B';
+            setWidgetReports(toVerificationReports(model, bundle.botEvidence ?? null));
+          }
         } finally {
           setChecking(false);
         }
@@ -79,22 +96,22 @@ export default function VerifySection({ initialId }: { initialId?: string | null
 
   return (
     <div>
-      <p className="text-sm text-ink">Same checks as <span className="font-mono">wayfind verify</span> — v0 receipts are integrity-checked, not yet signed (Phase 2).</p>
+      <p className="text-sm text-ink">Paste a receipt, or a sandbox id (microvm-…), and we&apos;ll check its signature. Signed receipts also open in the NEAR Verification Center below.</p>
       <textarea
         value={input}
         onChange={(e) => setInput(e.target.value)}
         rows={4}
-        placeholder='Paste receipt JSON, a conversation id, or a sandbox id (microvm-…)'
+        placeholder='Paste receipt JSON or a sandbox id (microvm-…)'
         className="mt-4 w-full rounded-xl border border-navy/15 bg-white px-3 py-2 font-mono text-xs text-navy"
       />
       <button onClick={run} className="mt-2 rounded-lg bg-cta px-4 py-2 text-sm text-white hover:bg-ctahover">
-        Check receipt
+        Verify
       </button>
       <Err message={error} />
-      {checking && <p className="mt-2 text-xs italic text-ink">Checking control-plane signature…</p>}
+      {checking && <p className="mt-2 text-xs italic text-ink">Checking signature…</p>}
       {serverCheck && (
         <div className="mt-4 rounded-xl border border-navy/10 bg-white p-4">
-          <p className="text-sm font-semibold text-navy">Control-plane signature (server-checked — true offline check is the CLI)</p>
+          <p className="text-sm font-semibold text-navy">Wayfind signature check</p>
           {(serverCheck.checks ?? []).map((c) => (
             <p key={c.name} className="text-sm">
               <span className={c.pass ? 'text-green-700' : 'text-red-700'}>{c.pass ? 'PASS' : 'FAIL'}</span>
@@ -106,6 +123,11 @@ export default function VerifySection({ initialId }: { initialId?: string | null
           <p className={`mt-1 text-sm font-semibold ${serverCheck.valid ? 'text-green-700' : 'text-red-700'}`}>
             {serverCheck.valid ? 'SIGNATURE VALID' : 'SIGNATURE NOT VERIFIED'}
           </p>
+          {serverCheck.valid && widgetReports && (
+            <div className="mt-3 rounded-lg bg-mist p-2">
+              <VerificationWidget reports={widgetReports} />
+            </div>
+          )}
         </div>
       )}
       {result && (

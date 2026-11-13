@@ -3,34 +3,32 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ShieldCheck, X } from 'lucide-react';
-import ActivitySection from './tabs/ActivityTab';
-import BotsSection from './tabs/BotsTab';
 import ConversationsSection from './tabs/ConversationsTab';
-import NewSection from './tabs/NewTab';
-import SettingsSection from './tabs/SettingsTab';
 import VerifySection from './tabs/VerifyTab';
 
-type Section = 'new' | 'bots' | 'sandboxes' | 'verify' | 'activity' | 'settings';
+type Section = 'sandboxes' | 'verify';
 
 export type SandboxSection = Section;
 
-const SECTIONS: Section[] = ['new', 'bots', 'sandboxes', 'verify', 'activity', 'settings'];
+const SECTIONS: Section[] = ['sandboxes', 'verify'];
+
+const LABELS: Record<Section, string> = { sandboxes: 'Sessions', verify: 'Verify' };
 
 /**
  * Sandboxes slide-in panel (GA-style right drawer).
- * Hosts every former sidebar tab as a section.
+ * Live and closed sandboxes plus receipt verification. Creation happens
+ * via the outer agents in chat — no manual New/Bots tabs here.
+ * Activity lives in ActivityPanel; policy lives in SettingsModal.
  */
 export default function SandboxesPanel({
   open,
   onClose,
-  onCreated,
   initialSection,
   openRequest,
   verifyRequest,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: (id: string) => void;
   initialSection: Section;
   openRequest: string | null;
   verifyRequest?: string | null;
@@ -79,7 +77,7 @@ export default function SandboxesPanel({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-brico text-lg font-bold text-navy">Sandboxes</span>
-                <span className="block text-xs text-ink">Sandboxes, receipts, attestations, and the audit trail.</span>
+                <span className="block text-xs text-ink">Live and closed sandboxes, receipts, and attestations.</span>
               </span>
               <button
                 onClick={onClose}
@@ -98,17 +96,13 @@ export default function SandboxesPanel({
                     section === s ? 'bg-navy text-white' : 'text-ink hover:bg-mist'
                   }`}
                 >
-                  {s}
+                  {LABELS[s]}
                 </button>
               ))}
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              {section === 'new' && <NewSection onCreated={onCreated} />}
-              {section === 'bots' && <BotsSection onCreated={onCreated} />}
-              {section === 'sandboxes' && <ConversationsSection openRequest={openRequest} />}
+              {section === 'sandboxes' && <ConversationsSection />}
               {section === 'verify' && <VerifySection initialId={verifyRequest ?? undefined} />}
-              {section === 'activity' && <ActivitySection />}
-              {section === 'settings' && <SettingsSection />}
             </div>
           </motion.aside>
         </>

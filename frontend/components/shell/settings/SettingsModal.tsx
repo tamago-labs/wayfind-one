@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Cloud, Plug, ShieldCheck, Sparkles } from 'lucide-react';
+import { Cloud, Plug, ScrollText, ShieldCheck, Sparkles } from 'lucide-react';
 import ComputerTab from './ComputerTab';
 import PermissionsTab from './PermissionsTab';
+import PolicyTab from './PolicyTab';
 import SkillsTab from './SkillsTab';
 import McpTab from './McpTab';
 
-type Tab = 'computer' | 'skills' | 'mcp' | 'permissions';
+type Tab = 'computer' | 'skills' | 'mcp' | 'permissions' | 'policy';
 
 interface SettingsModalProps {
   open: boolean;
@@ -17,7 +18,8 @@ interface SettingsModalProps {
 }
 
 /** Computer settings modal (cloud SettingsModal parity): computer overview
- * plus the skills / MCP / permissions registries that live on the VM. */
+ * plus the skills / MCP / permissions registries and execution policy
+ * that live on the VM. */
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [tab, setTab] = useState<Tab>('computer');
 
@@ -35,6 +37,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     { id: 'skills', label: 'Skills', icon: Sparkles },
     { id: 'mcp', label: 'MCP', icon: Plug },
     { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
+    { id: 'policy', label: 'Policy', icon: ScrollText },
   ];
 
   return createPortal(
@@ -80,8 +83,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 <SkillsTab />
               ) : tab === 'mcp' ? (
                 <McpTab />
-              ) : (
+              ) : tab === 'permissions' ? (
                 <PermissionsTab />
+              ) : (
+                <PolicyTab />
               )}
             </div>
           </motion.div>

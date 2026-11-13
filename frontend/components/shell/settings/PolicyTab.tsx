@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { getPolicy, imageTrust, putPolicy, type Policy } from '@/lib/wayfind';
 import { Err } from '../shared';
+import TabHeader from './TabHeader';
 
-export default function SettingsSection() {
+export default function PolicyTab() {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [level, setLevel] = useState('none');
   const [models, setModels] = useState('');
@@ -41,8 +42,11 @@ export default function SettingsSection() {
   }
 
   return (
-    <div>
-      <p className="text-sm text-ink">Execution policy is enforced server-side at provision time. Violations fail closed.</p>
+    <div className="space-y-4 p-5">
+      <TabHeader
+        title="Policy"
+        sub="Execution policy is enforced server-side at provision time. Violations fail closed."
+      />
       <Err message={error} />
       <div className="mt-4 max-w-2xl rounded-xl border border-navy/10 bg-white p-4">
         <p className="font-semibold text-navy">Policy {policy ? '' : '(loading…)'}</p>

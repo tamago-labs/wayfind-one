@@ -8,6 +8,7 @@ import BotPanel from './shell/BotPanel';
 import NewBotModal from './shell/NewBotModal';
 import SettingsModal from './shell/settings/SettingsModal';
 import SandboxesPanel, { type SandboxSection } from './shell/SandboxesPanel';
+import ActivityPanel from './shell/ActivityPanel';
 import { BootPhase, ComputerRow, ensureComputer } from '@/lib/computer';
 import { BotEdits, TeamBot, deleteTeamBot, listTeamBots, saveTeamBot } from '@/lib/team';
 
@@ -16,6 +17,7 @@ export default function OneShell({ email }: { email?: string }) {
   const [openRequest, setOpenRequest] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [sandboxesOpen, setSandboxesOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [sandboxSection, setSandboxSection] = useState<SandboxSection>('verify');
   const [phase, setPhase] = useState<BootPhase>('checking');
   const [, setComputer] = useState<ComputerRow | null>(null);
@@ -140,9 +142,9 @@ export default function OneShell({ email }: { email?: string }) {
     [loadBots],
   );
 
-  const handleCreated = (id: string) => {
-    setOpenRequest(id);
-    openSandboxes('sandboxes');
+  const handleOpenActivity = () => {
+    setNavOpen(false);
+    setActivityOpen(true);
   };
 
   const selected = bots?.find((b) => b.id === selectedId) ?? null;
@@ -165,6 +167,7 @@ export default function OneShell({ email }: { email?: string }) {
           setSettingsOpen(true);
         }}
         onSandboxes={() => openSandboxes('verify')}
+        onActivity={handleOpenActivity}
         bots={bots ?? []}
         selectedId={selectedId}
         busyId={busyId}
@@ -242,7 +245,8 @@ export default function OneShell({ email }: { email?: string }) {
       />
       <BotPanel open={panelOpen} onClose={() => setPanelOpen(false)} bot={selected} onSave={saveBotEdits} onDelete={deleteBot} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <SandboxesPanel open={sandboxesOpen} onClose={() => { setSandboxesOpen(false); setOpenRequest(null); }} onCreated={handleCreated} initialSection={sandboxSection} openRequest={openRequest} verifyRequest={sandboxSection === 'verify' ? openRequest : null} />
+      <SandboxesPanel open={sandboxesOpen} onClose={() => { setSandboxesOpen(false); setOpenRequest(null); }} initialSection={sandboxSection} openRequest={openRequest} verifyRequest={sandboxSection === 'verify' ? openRequest : null} />
+      <ActivityPanel open={activityOpen} onClose={() => setActivityOpen(false)} />
     </div>
   );
 }
