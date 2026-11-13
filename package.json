@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node ./bin/wayfind.js start",
     "login": "node ./bin/wayfind.js login",
-    "logout": "node ./bin/wayfind.js logout"
+    "logout": "node ./bin/wayfind.js logout",
+    "demo": "node ./bin/wayfind.js demo"
   },
   "engines": {
     "node": ">=20"

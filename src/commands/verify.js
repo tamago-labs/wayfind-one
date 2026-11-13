@@ -144,34 +144,33 @@ export async function verify(rawArgs) {
   // Offline Ed25519 check for signed receipts. Unsigned (observed-only)
   // receipts skip this — the NOTE above already says so.
   if (receipt?.class === 'signed' && receipt?.signature?.sig) {
-    try {
-      const key = await loadVerifyKey();
-      const { signature, ...body } = receipt;
-      let valid = false;
-      let detail = '';
-      if (signature.kid !== key.kid) {
-        try {
-          const fresh = await loadVerifyKeyForce();
-          if (fresh.kid === signature.kid) {
-            valid = edVerifyCheck(body, signature, fresh.publicKey);
-            detail = `key rotated (now ${fresh.kid})`;
-          } else {
-            detail = `unknown kid ${signature.kid} (current ${key.kid})`;
-          }
-        } catch (e) {
-          detail = e.message;
-        }
-      } else {
-        valid = edVerifyCheck(body, signature, key.publicKey);
-        detail = `kid ${key.kid}`;
-      }
-      ok = check('Ed25519 receipt signature verifies (offline)', valid, detail) && ok;
-    } catch (e) {
-      ok = check('Ed25519 receipt signature verifies (offline)', false, e.message) && ok;
-    }
+    const sig = await verifySignature(receipt);
+    ok = check('Ed25519 receipt signature verifies (offline)', sig.ok, sig.detail) && ok;
   }
   console.log(ok ? 'verify: ALL CHECKS PASSED' : 'verify: CHECKS FAILED');
   process.exit(ok ? 0 : 1);
+}
+
+/** Offline Ed25519 check for a receipt object. Shared with `wayfind demo`. */
+export async function verifySignature(receipt) {
+  try {
+    const key = await loadVerifyKey();
+    const { signature, ...body } = receipt;
+    if (signature.kid !== key.kid) {
+      try {
+        const fresh = await loadVerifyKeyForce();
+        if (fresh.kid === signature.kid) {
+          return { ok: edVerifyCheck(body, signature, fresh.publicKey), detail: `key rotated (now ${fresh.kid})` };
+        }
+        return { ok: false, detail: `unknown kid ${signature.kid} (current ${key.kid})` };
+      } catch (e) {
+        return { ok: false, detail: e.message };
+      }
+    }
+    return { ok: edVerifyCheck(body, signature, key.publicKey), detail: `kid ${key.kid}` };
+  } catch (e) {
+    return { ok: false, detail: e.message };
+  }
 }
 
 function edVerifyCheck(body, signature, publicKeyPem) {
