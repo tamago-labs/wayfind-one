@@ -7,10 +7,52 @@ import { AnimatePresence, motion } from 'framer-motion';
 interface NewBotModalProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (name: string, isChief: boolean) => Promise<string | null>;
+  onCreate: (name: string, isChief: boolean, opts?: { role?: string; firstPrompt?: string }) => Promise<string | null>;
   taken?: string[];
   chiefTakenBy?: string | null;
 }
+
+interface ExampleBot {
+  label: string;
+  desc: string;
+  name: string;
+  role: string;
+  prompt: string;
+  chiefOnly?: boolean;
+}
+
+/** Creation templates: name + role prefilled, opening task auto-sent after create. */
+const EXAMPLE_BOTS: ExampleBot[] = [
+  {
+    label: 'Finance Reconciler',
+    desc: 'Reconcile statements in a sealed sandbox',
+    name: 'Ledger',
+    role: 'Finance operations — reconciles statements with verified breakdowns',
+    prompt: 'I will attach my bank statement CSV. Reconcile it against my ledger and flag anything that doesn\'t match — I need a verified breakdown.',
+  },
+  {
+    label: 'Contract Reviewer',
+    desc: 'Risky clauses in plain words',
+    name: 'Counsel',
+    role: 'Contract review — flags risky clauses and what they mean',
+    prompt: 'I will attach a contract PDF. Review it for risky clauses and summarize what each one means for me.',
+  },
+  {
+    label: 'Briefing Writer',
+    desc: 'Stakeholder briefs from approved notes',
+    name: 'Brief',
+    role: 'Stakeholder briefings — turns approved notes into briefs with open commitments',
+    prompt: 'I will attach our approved engagement notes. Prepare a stakeholder brief with open commitments and suggested next steps.',
+  },
+  {
+    label: 'Team Coordinator',
+    desc: 'Delegates across your other bots',
+    name: 'Chief',
+    role: 'Chief of staff',
+    prompt: 'You are my chief of staff. How do you coordinate my other bots, and what should I delegate first?',
+    chiefOnly: true,
+  },
+];
 
 /** Theme-flavored name pool (nature + color tokens from the landing palette). */
 const NAME_POOL = [
@@ -38,6 +80,7 @@ function randomName(taken: string[]): string {
 export default function NewBotModal({ open, onClose, onCreate, taken = [], chiefTakenBy = null }: NewBotModalProps) {
   const [name, setName] = useState('');
   const [isChief, setIsChief] = useState(false);
+  const [example, setExample] = useState<ExampleBot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -45,10 +88,17 @@ export default function NewBotModal({ open, onClose, onCreate, taken = [], chief
     if (open) {
       setName(randomName(taken));
       setIsChief(false);
+      setExample(null);
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open ]);
+
+  const pickExample = (ex: ExampleBot) => {
+    setExample(ex);
+    setName(ex.name);
+    if (ex.chiefOnly) setIsChief(true);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +114,7 @@ export default function NewBotModal({ open, onClose, onCreate, taken = [], chief
     if (!v || saving) return;
     setSaving(true);
     setError(null);
-    const err = await onCreate(v, isChief);
+    const err = await onCreate(v, isChief, example ? { role: example.role, firstPrompt: example.prompt } : undefined);
     setSaving(false);
     if (err) {
       setError(err);
@@ -94,9 +144,41 @@ export default function NewBotModal({ open, onClose, onCreate, taken = [], chief
             aria-modal="true"
             aria-label="Name your Bot"
           >
-            <div className="p-5">
+            <div className="max-h-[85vh] overflow-y-auto p-5">
               <h3 className="font-brico text-lg font-bold text-navy">Name your Bot</h3>
               <p className="mt-1 text-sm text-navy/60">{isChief ? 'It talks to your other bots and coordinates them.' : 'Give it a name — you\u2019ll define its role in your first message.'}</p>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wide text-navy/50">Start from an example</p>
+              <div className="mt-2 grid grid-cols-1 gap-1.5">
+                {EXAMPLE_BOTS.map((ex) => {
+                  const active = example?.label === ex.label;
+                  return (
+                    <button
+                      key={ex.label}
+                      type="button"
+                      onClick={() => pickExample(ex)}
+                      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+                        active ? 'border-cta bg-cta/5' : 'border-navy/15 hover:border-navy/30'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-navy">{ex.label}</span>
+                        <span className="block truncate text-xs text-navy/50">{ex.desc}</span>
+                      </span>
+                      {ex.chiefOnly && (
+                        <span className="shrink-0 rounded-full bg-navy px-2 py-0.5 text-[10px] font-bold text-white">
+                          Only Chief Of Staff
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {example && (
+                <div className="mt-2 rounded-xl bg-ice px-3 py-2 text-xs text-navy/70">
+                  <p><span className="font-bold text-navy">Role:</span> {example.role}</p>
+                  <p className="mt-1"><span className="font-bold text-navy">First message:</span> {example.prompt}</p>
+                </div>
+              )}
               <div className="mt-4 flex gap-2">
                 <input
                   autoFocus
@@ -114,7 +196,10 @@ export default function NewBotModal({ open, onClose, onCreate, taken = [], chief
                 <input
                   type="checkbox"
                   checked={isChief}
-                  onChange={(e) => setIsChief(e.target.checked)}
+                  onChange={(e) => {
+                    setIsChief(e.target.checked);
+                    if (!e.target.checked && example?.chiefOnly) setExample(null);
+                  }}
                   className="h-4 w-4 accent-[#2F7BFF]"
                 />
                 <span>

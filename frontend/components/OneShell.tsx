@@ -30,6 +30,8 @@ export default function OneShell({ email }: { email?: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Example first-message from bot creation — auto-sent once, then cleared. */
+  const [pendingPrompt, setPendingPrompt] = useState<{ botId: string; text: string } | null>(null);
 
   const boot = useCallback(async () => {
     setBootError(null);
@@ -86,15 +88,17 @@ export default function OneShell({ email }: { email?: string }) {
   }, [ready, bots, botsError, loadBots]);
 
   const createBot = useCallback(
-    async (name: string, isChief: boolean): Promise<string | null> => {
+    async (name: string, isChief: boolean, opts?: { role?: string; firstPrompt?: string }): Promise<string | null> => {
       try {
         const bot = await saveTeamBot({
           name,
-          ...(isChief ? { role: 'Chief of staff', isChiefOfStaff: true } : {}),
+          ...(opts?.role || isChief ? { role: opts?.role ?? 'Chief of staff' } : {}),
+          ...(isChief ? { isChiefOfStaff: true } : {}),
         });
         await loadBots(bot.id);
         setSelectedId(bot.id);
         setModalOpen(false);
+        if (opts?.firstPrompt) setPendingPrompt({ botId: bot.id, text: opts.firstPrompt });
         return null;
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
@@ -233,6 +237,8 @@ export default function OneShell({ email }: { email?: string }) {
             onOpenSettings={() => setPanelOpen(true)}
             onOpenVerify={handleOpenVerify}
             onTeamChanged={() => loadBots()}
+            initialPrompt={pendingPrompt}
+            onPromptConsumed={() => setPendingPrompt(null)}
           />
         )}
       </main>

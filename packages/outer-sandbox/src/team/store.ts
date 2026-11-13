@@ -210,9 +210,26 @@ export function saveEvidence(sandboxId: string, record: Record<string, unknown>)
   writeManifest();
 }
 
+/** One-line summary for the panel's closed-runs list. Human fields
+ * (task, duration, verification counts) are extracted here so the list
+ * never ships full transcripts. */
+export interface EvidenceSummary {
+  sandboxId: string;
+  closedAt: string | null;
+  turns: number | null;
+  receiptClass: string | null;
+  /** First user message, truncated — the row title. Null when no transcript. */
+  task: string | null;
+  /** provisionedAt → terminatedAt in ms. Null when timestamps missing. */
+  durationMs: number | null;
+  model: string | null;
+  stepsVerified: number;
+  stepsTotal: number;
+}
+
 /** List stored evidence bundles (newest first) for the panel's closed-runs
- * section: [{ sandboxId, closedAt, turns, receiptClass }]. */
-export function listEvidence(): Array<{ sandboxId: string; closedAt: string | null; turns: number | null; receiptClass: string | null }> {
+ * section. Summaries only — full bundles load per-row on demand. */
+export function listEvidence(): EvidenceSummary[] {
   ensureTeamSeed('meta-models/Muse-Spark-Open-816B-A42B');
   const dir = join(TEAM_DIR, 'evidence');
   let names: string[] = [];
@@ -221,16 +238,34 @@ export function listEvidence(): Array<{ sandboxId: string; closedAt: string | nu
   } catch {
     return [];
   }
-  const out: Array<{ sandboxId: string; closedAt: string | null; turns: number | null; receiptClass: string | null }> = [];
+  const out: EvidenceSummary[] = [];
   for (const name of names.slice(0, 200)) {
     try {
       const raw = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Record<string, unknown>;
-      const receipt = raw.receipt as { class?: string } | undefined;
+      const receipt = raw.receipt as {
+        class?: string;
+        model?: string;
+        provisionedAt?: string;
+        terminatedAt?: string;
+        inference?: { botEvidence?: { messages?: Array<{ checked?: boolean; valid?: boolean }> } };
+      } | undefined;
+      const transcript = Array.isArray(raw.transcript) ? raw.transcript as Array<{ role?: string; content?: string }> : [];
+      const firstUser = transcript.find((t) => t?.role === 'user' && typeof t.content === 'string' && t.content.trim());
+      const taskText = typeof firstUser?.content === 'string' ? firstUser.content.trim().slice(0, 140) : '';
+      const msgs = receipt?.inference?.botEvidence?.messages ?? [];
+      const checked = msgs.filter((m) => m?.checked);
+      const t0 = receipt?.provisionedAt ? Date.parse(receipt.provisionedAt) : NaN;
+      const t1 = receipt?.terminatedAt ? Date.parse(receipt.terminatedAt) : NaN;
       out.push({
         sandboxId: String(raw.sandboxId ?? name.replace(/\.json$/, '')),
         closedAt: typeof raw.closedAt === 'string' ? raw.closedAt : null,
         turns: typeof raw.turns === 'number' ? raw.turns : null,
         receiptClass: typeof receipt?.class === 'string' ? receipt.class : null,
+        task: taskText ? taskText : null,
+        durationMs: Number.isFinite(t0) && Number.isFinite(t1) && t1 >= t0 ? t1 - t0 : null,
+        model: typeof receipt?.model === 'string' ? receipt.model : null,
+        stepsVerified: checked.filter((m) => m.valid === true).length,
+        stepsTotal: checked.length,
       });
     } catch {
       // Corrupt bundle — skip, never crash the list.

@@ -12,7 +12,33 @@ import {
 import { teamEvidence, teamEvidenceList, type ClosedSandboxRun } from '@/lib/team';
 import { CopyId, Err } from '../shared';
 
-export default function ConversationsSection() {
+function relTime(iso: string | null): string {
+  if (!iso) return 'date unknown';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diff) || diff < 0) return 'just now';
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'Yesterday';
+  if (d < 7) return `${d} days ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function fmtDuration(ms: number | null): string | null {
+  if (typeof ms !== 'number' || ms < 0) return null;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function shortModel(m: string | null): string | null {
+  if (!m) return null;
+  const parts = m.split('/');
+  return parts[parts.length - 1] || m;
+}export default function ConversationsSection() {
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<SandboxLive[] | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
@@ -126,49 +152,69 @@ export default function ConversationsSection() {
         )}
       </div>
       <p className="mt-4 text-sm font-semibold text-navy">Recent closed sandboxes</p>
-      <p className="text-xs text-ink">Every closed run leaves a signed receipt — same id as in chat.</p>
+      <p className="text-xs text-ink">Every closed run leaves a signed receipt — verified below, viewable in full anytime.</p>
       <div className="mt-2 space-y-2">
-        {(closed ?? []).map((c) => (
-          <div key={c.sandboxId} className="rounded-xl border border-navy/10 bg-white px-4 py-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-xs text-navy">
-                <CopyId id={c.sandboxId} /> · {c.turns ?? '?'} turn(s){c.receiptClass ? ` · receipt: ${c.receiptClass}` : ''}
-              </span>
-              <span className="flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  disabled={verifying === c.sandboxId}
-                  onClick={() => void verifyClosed(c.sandboxId)}
-                  className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-navy shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {verifying === c.sandboxId ? 'Checking…' : 'Verify'}
-                </button>
-                <button
-                  type="button"
-                  disabled={widgetLoading === c.sandboxId}
-                  onClick={() => void toggleWidget(c.sandboxId)}
-                  className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-cta shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {widgetLoading === c.sandboxId ? 'Loading…' : widgetOpen[c.sandboxId] ? 'Hide NEAR widget' : 'NEAR widget'}
-                </button>
-              </span>
-            </div>
-            {verified[c.sandboxId] && (
-              <p className={`mt-1 text-xs font-semibold ${verified[c.sandboxId].ok ? 'text-green-700' : 'text-red-700'}`}>
-                {verified[c.sandboxId].ok ? 'Signature valid' : 'NOT VERIFIED'} <span className="font-normal text-ink">· {verified[c.sandboxId].detail}</span>
-              </p>
-            )}
-            {widgetOpen[c.sandboxId] && widgetData[c.sandboxId] && (
-              <div className="mt-2 rounded-lg bg-mist p-2">
-                {'error' in widgetData[c.sandboxId] ? (
-                  <p className="text-xs text-red-700">{(widgetData[c.sandboxId] as { error: string }).error}</p>
-                ) : (
-                  <VerificationWidget reports={(widgetData[c.sandboxId] as { reports: WidgetReport[] }).reports} />
-                )}
+        {(closed ?? []).map((c) => {
+          const dur = fmtDuration(c.durationMs);
+          const sub = [
+            c.closedAt ? `Closed ${relTime(c.closedAt)}` : null,
+            dur,
+            c.stepsTotal > 0 ? `${c.stepsVerified} of ${c.stepsTotal} steps verified` : c.turns != null ? `${c.turns} turn(s)` : null,
+            shortModel(c.model),
+          ].filter(Boolean).join(' · ');
+          return (
+            <div key={c.sandboxId} className="rounded-xl border border-navy/10 bg-white px-4 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-navy" title={c.task ?? undefined}>
+                    {c.task ?? 'Sandbox run'}
+                  </span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink">
+                    <span>{sub}</span>
+                    {c.receiptClass && (
+                      <span className={`rounded-full px-2 py-0.5 font-semibold ${c.receiptClass === 'signed' ? 'bg-green-100 text-green-800' : 'bg-bamber/30 text-navy'}`}>
+                        Receipt {c.receiptClass}
+                      </span>
+                    )}
+                    <CopyId id={c.sandboxId} />
+                  </span>
+                </span>
+                <span className="flex shrink-0 gap-1.5">
+                  <button
+                    type="button"
+                    disabled={verifying === c.sandboxId}
+                    onClick={() => void verifyClosed(c.sandboxId)}
+                    className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-navy shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {verifying === c.sandboxId ? 'Checking…' : 'Verify'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={widgetLoading === c.sandboxId}
+                    onClick={() => void toggleWidget(c.sandboxId)}
+                    className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-cta shadow-sm ring-1 ring-navy/15 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {widgetLoading === c.sandboxId ? 'Loading…' : widgetOpen[c.sandboxId] ? 'Hide NEAR widget' : 'NEAR widget'}
+                  </button>
+                </span>
               </div>
-            )}
-          </div>
-        ))}
+              {verified[c.sandboxId] && (
+                <p className={`mt-1 text-xs font-semibold ${verified[c.sandboxId].ok ? 'text-green-700' : 'text-red-700'}`}>
+                  {verified[c.sandboxId].ok ? 'Signature verified · signed by Wayfind' : `NOT VERIFIED · ${verified[c.sandboxId].detail}`}
+                </p>
+              )}
+              {widgetOpen[c.sandboxId] && widgetData[c.sandboxId] && (
+                <div className="mt-2 rounded-lg bg-mist p-2">
+                  {'error' in widgetData[c.sandboxId] ? (
+                    <p className="text-xs text-red-700">{(widgetData[c.sandboxId] as { error: string }).error}</p>
+                  ) : (
+                    <VerificationWidget reports={(widgetData[c.sandboxId] as { reports: WidgetReport[] }).reports} />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {closed !== null && closed.length === 0 && (
           <p className="text-xs text-ink">No closed runs yet — close a session and its signed receipt lands here.</p>
         )}

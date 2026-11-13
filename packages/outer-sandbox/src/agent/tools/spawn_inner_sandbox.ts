@@ -13,7 +13,7 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { guarded, type GuardOpts } from '../../core/guard.js';
 import { WORKSPACE_DIR } from '../../core/config.js';
@@ -35,6 +35,43 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
+
+/** In-memory sessions die with the process (outer restarts between turns),
+ * so the map persists to the team workspace and reloads lazily. Without
+ * this, follow-ups miss the cache and spawn duplicates of a live session. */
+const SESSIONS_PATH = join(WORKSPACE_DIR, 'team', 'sandbox-sessions.json');
+let sessionsLoaded = false;
+
+function ensureSessionsLoaded(): void {
+  if (sessionsLoaded) return;
+  sessionsLoaded = true;
+  try {
+    if (!existsSync(SESSIONS_PATH)) return;
+    const raw = JSON.parse(readFileSync(SESSIONS_PATH, 'utf8')) as Record<string, unknown>;
+    for (const [key, v] of Object.entries(raw)) {
+      const s = v as Partial<Session>;
+      if (typeof s.sandboxId === 'string' && s.sandboxId) {
+        sessions.set(key, {
+          sandboxId: s.sandboxId,
+          lastUsedAt: typeof s.lastUsedAt === 'number' ? s.lastUsedAt : Date.now(),
+          turns: typeof s.turns === 'number' ? s.turns : 1,
+          goals: Array.isArray(s.goals) ? s.goals.filter((g): g is string => typeof g === 'string') : [],
+        });
+      }
+    }
+  } catch {
+    // Corrupt cache — start empty, live sessions re-resolve on next call.
+  }
+}
+
+function persistSessions(): void {
+  try {
+    mkdirSync(join(WORKSPACE_DIR, 'team'), { recursive: true });
+    writeFileSync(SESSIONS_PATH, JSON.stringify(Object.fromEntries(sessions), null, 2));
+  } catch {
+    // Cache write failure must never break the run.
+  }
+}
 
 function sessionKey(opts: GuardOpts): string {
   return `${opts.ownerId ?? 'cli'}/${opts.conversationId ?? 'direct'}`;
@@ -135,14 +172,16 @@ async function terminateSession(api: ApiCtx, sid: string, goalHash: string): Pro
 
 /** Close + persist evidence + drop from the registry. Every close path
  * (explicit, idle, computer terminate) funnels through here so no session
- * ends without a stored bundle. */
+ * ends without a stored bundle — unless it never ran (0 turns, no
+ * transcript, e.g. an uncached close of an unreachable VM), in which case
+ * saving an empty bundle would only pollute the closed-runs list. */
 async function closeSessionWithEvidence(
   api: ApiCtx,
   key: string,
   s: Session,
   goalHash: string,
   reason: string,
-): Promise<Closeout> {
+): Promise<Closeout & { saved: boolean }> {
   // Grab the transcript BEFORE terminate (the VM dies after this). Best
   // effort: a missing transcript must never block closeout + receipt.
   let transcript: unknown = null;
@@ -159,11 +198,18 @@ async function closeSessionWithEvidence(
   }
   const out = await terminateSession(api, s.sandboxId, goalHash);
   sessions.delete(key);
+  persistSessions();
+  // Uncached closes (computer restarted after spawning) arrive with
+  // turns: -1 — the run count is unknown, not zero. Never persist an
+  // empty bundle: no turns, no transcript, nothing to verify.
+  if (s.turns <= 0 && !transcript) {
+    return { ...out, saved: false };
+  }
   try {
     saveEvidence(s.sandboxId, {
       sandboxId: s.sandboxId,
       thread: key,
-      turns: s.turns,
+      turns: s.turns < 0 ? null : s.turns,
       goalHashes: s.goals,
       closedAt: new Date().toISOString(),
       closeReason: reason,
@@ -173,14 +219,16 @@ async function closeSessionWithEvidence(
     });
   } catch (err) {
     console.error('[spawn_inner_sandbox] evidence save failed:', err instanceof Error ? err.message : String(err));
+    return { ...out, saved: false };
   }
-  return out;
+  return { ...out, saved: true };
 }
 
 /** Close every session this process holds (computer terminate hook). */
 export async function terminateAllSandboxSessions(): Promise<void> {
   const api = apiCtx({} as GuardOpts);
   if ('missing' in api) return;
+  ensureSessionsLoaded();
   for (const [key, s] of [...sessions]) {
     try {
       await closeSessionWithEvidence(api, key, s, `close-all:${key}`, 'computer-terminate');
@@ -200,6 +248,7 @@ async function runEscalation(
   const stagedIds = Array.isArray(args.fileRefs) ? args.fileRefs.filter((r): r is string => typeof r === 'string') : [];
   const goalHash = createHash('sha256').update(args.goal, 'utf8').digest('hex');
   const brief = botBriefBlock(opts);
+  ensureSessionsLoaded();
 
   // Reuse: live session for this thread, within idle + turn bounds.
   const cached = sessions.get(key);
@@ -207,24 +256,36 @@ async function runEscalation(
     if (Date.now() - cached.lastUsedAt > SESSION_IDLE_MS || cached.turns >= SESSION_MAX_TURNS) {
       await closeSessionWithEvidence(api, key, cached, goalHash, 'idle-or-budget');
     } else {
-      const msg = await postJson(api, `/sandboxes/${cached.sandboxId}/message`, {
-        ...(api.computerId ? { computerId: api.computerId } : {}),
-        sub: 'bot/message',
-        body: { content: args.goal },
-        ...(stagedIds.length > 0 ? { stagedIds } : {}),
-      });
+      const postGoal = (withFiles: boolean) =>
+        postJson(api, `/sandboxes/${cached.sandboxId}/message`, {
+          ...(api.computerId ? { computerId: api.computerId } : {}),
+          sub: 'bot/message',
+          body: { content: args.goal },
+          ...(withFiles && stagedIds.length > 0 ? { stagedIds } : {}),
+        });
+      let msg = await postGoal(true);
+      let reusedSealedFiles = false;
+      // Staged ids are single-use: re-passing an already-consumed file fails
+      // even though its bytes persist in the live session. Retry bare before
+      // giving up — the session already holds the files.
+      if (!msg.ok && stagedIds.length > 0 && /stag|expir|consum|already used|seal/i.test(JSON.stringify(msg.data))) {
+        msg = await postGoal(false);
+        reusedSealedFiles = msg.ok;
+      }
       if (msg.ok) {
         const res = (msg.data as { result?: { text?: unknown; error?: string; verification?: { kind?: string; valid?: boolean } } }).result ?? {};
         if (!res.error) {
           cached.lastUsedAt = Date.now();
           cached.turns += 1;
           cached.goals.push(goalHash);
+          persistSessions();
           const verification = res.verification
             ? `${res.verification.kind ?? 'unknown'}, signature ${res.verification.valid === true ? 'valid' : 'NOT valid'}`
             : 'none reported';
           return (
             `<inner_result sandbox="${cached.sandboxId}" turn="${cached.turns}" session="open" policy="verified_inference (enforced inside)" verification="${verification}">\n` +
             `${typeof res.text === 'string' && res.text ? res.text : '(empty result)'}\n` +
+            (reusedSealedFiles ? `\n(files were already sealed in this session from the first run — reused without re-upload)\n` : '') +
             `</inner_result>`
           );
         }
@@ -233,6 +294,7 @@ async function runEscalation(
       }
       // Transport-level failure (410 gone, unreachable): drop and respawn.
       sessions.delete(key);
+      persistSessions();
     }
   }
 
@@ -283,6 +345,7 @@ async function runEscalation(
     return fail(`Inner sandbox returned an error, session closed: \`${JSON.stringify(runData?.error ?? 'empty result').slice(0, 300)}\`.`);
   }
   sessions.set(key, { sandboxId: sid, lastUsedAt: Date.now(), turns: 1, goals: [goalHash] });
+  persistSessions();
   const verification = runData.verification
     ? `${runData.verification.kind ?? 'unknown'}, signature ${runData.verification.valid === true ? 'valid' : 'NOT valid'}`
     : 'none reported';
@@ -311,7 +374,10 @@ export function createSpawnInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
       'Policy is enforced inside the sandbox itself: verified_inference is mandatory, attestation ' +
       'preflight must pass, and only the run allowlist models can infer — the sandbox refuses otherwise. ' +
       'One open session per thread: the first call spawns, follow-ups reuse the live sandbox (transcript + files persist). ' +
+      'The session registry survives restarts, so an open session stays reachable. ' +
       'File references are opaque staged ids from the user message — you never see file bytes. ' +
+      'Never re-pass fileRefs already attached earlier in this thread: staged ids are single-use and ' +
+      'already-consumed ids fail, while the live session already holds the files. ' +
       'This is a bounded blocking call — you stay responsible for the final answer. ' +
       'Relay the result in your own words, then quote the <inner_result> block VERBATIM at the very end (it carries the verifiable receipt for the UI). ' +
       'Only name staged files listed in your context, never invent ids.',
@@ -351,6 +417,7 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
       'close_inner_sandbox',
       () => 'close',
       async () => {
+        ensureSessionsLoaded();
         const key = sessionKey(opts);
         const s = sessions.get(key);
         if (s) {
@@ -359,7 +426,7 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
           const out = await closeSessionWithEvidence(api, key, s, `close:${key}`, 'explicit');
           return (
             `Inner sandbox ${s.sandboxId} closed after ${s.turns} turn(s): kill ${out.verified ? 'verified' : 'UNVERIFIED'}, receipt ${out.receiptClass}. ` +
-            `Evidence saved — open it from the evidence card below or Sandboxes → verify.`
+            (out.saved ? 'Evidence saved — open it from the evidence card below or Sessions → verify.' : 'Nothing preserved — the session never ran.')
           );
         }
         // No cached session (e.g. computer restarted after spawning): fall
@@ -375,8 +442,13 @@ export function createCloseInnerSandboxTool(opts: GuardOpts): ReturnType<typeof 
           return `Multiple open sessions (${rows.map((r) => r.sandboxId).join(', ')}). Tell me which sandbox id to close, or close extras from Sandboxes → Live.`;
         }
         const sid = rows[0].sandboxId;
-        const out = await closeSessionWithEvidence(api, key, { sandboxId: sid, lastUsedAt: Date.now(), turns: 0, goals: [] }, `close:${key}`, 'explicit-uncached');
-        return `Inner sandbox ${sid} closed (verified=${out.verified}, receipt ${out.receiptClass}). Evidence saved — open it from the evidence card below or Sandboxes → verify.`;
+        // Run count unknown after a restart — pass -1 so closeout records
+        // turns: null instead of a misleading 0.
+        const out = await closeSessionWithEvidence(api, key, { sandboxId: sid, lastUsedAt: Date.now(), turns: -1, goals: [] }, `close:${key}`, 'explicit-uncached');
+        return (
+          `Inner sandbox ${sid} closed (verified=${out.verified}, receipt ${out.receiptClass}). ` +
+          (out.saved ? 'Evidence saved — open it from the evidence card below or Sessions → verify.' : 'Nothing preserved — the session never ran.')
+        );
       },
       opts,
     ),

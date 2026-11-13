@@ -256,6 +256,11 @@ export interface ClosedSandboxRun {
   closedAt: string | null;
   turns: number | null;
   receiptClass: string | null;
+  task: string | null;
+  durationMs: number | null;
+  model: string | null;
+  stepsVerified: number;
+  stepsTotal: number;
 }
 
 export async function teamEvidenceList(): Promise<{ evidence: ClosedSandboxRun[] }> {

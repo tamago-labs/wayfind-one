@@ -6,7 +6,7 @@ import Mascot from '@/components/Mascot';
 import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun, type ChatStagedRef } from '@/lib/team';
 import Markdown from './Markdown';
 import VoiceModal from './VoiceModal';
-import VerificationWidget from '@/components/VerificationWidget';
+import VerificationDrawer from './VerificationDrawer';
 import { toVerificationReports } from '@/lib/verifyReports';
 import { Err, CopyId } from './shared';
 import { stageFiles } from '@/lib/wayfind';
@@ -23,6 +23,9 @@ interface TeamChatProps {
   onOpenSettings: () => void;
   onOpenVerify?: (sandboxId: string) => void;
   onTeamChanged: () => void;
+  /** Example first-message from bot creation — auto-sent once, then cleared. */
+  initialPrompt?: { botId: string; text: string } | null;
+  onPromptConsumed?: () => void;
 }
 
 /** Hello prompts (bot-initiated intros). Never rendered as chat — the
@@ -81,40 +84,67 @@ function EscalationTimer({ since, onDismiss }: { since: number; onDismiss: () =>
   );
 }
 
+/** Evidence cards repeat per quoted result — render the full card once per
+ * sandbox, compact re-quotes after that. Module-level: sandbox ids are unique. */
+const renderedEvidenceCards = new Set<string>();
+
 function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptClass, onOpenVerify }: { sandboxId?: string; verification?: string; policy?: string; turn?: string; session?: string; receiptClass?: string; onOpenVerify?: (id: string) => void }) {
+  const [fullCard] = useState(() => {
+    if (!sandboxId) return true;
+    if (renderedEvidenceCards.has(sandboxId)) return false;
+    renderedEvidenceCards.add(sandboxId);
+    return true;
+  });
   const [open, setOpen] = useState(false);
   const [bundle, setBundle] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [showWidget, setShowWidget] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const loadBundle = async (): Promise<boolean> => {
+    if (bundle) return true;
+    if (loading || !sandboxId) return false;
+    setLoading(true);
+    setError(null);
+    try {
+      const out = await teamEvidence(sandboxId);
+      const ev = (out.evidence as Record<string, unknown> | null) ?? null;
+      if (!ev) {
+        setError(session === 'open' ? 'Evidence is saved when this session closes — close it from Sessions, then reopen here.' : 'No stored evidence for that sandbox yet.');
+        return false;
+      }
+      setBundle(ev);
+      return true;
+    } catch (e) {
+      // Open sessions have no stored bundle yet — say so plainly instead of
+      // surfacing the raw 404.
+      setError(session === 'open' ? 'Evidence is saved when this session closes — close it from Sessions, then reopen here.' : e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
   const toggle = async () => {
     if (open) {
       setOpen(false);
       return;
     }
     setOpen(true);
-    if (bundle || !sandboxId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const out = await teamEvidence(sandboxId);
-      setBundle((out.evidence as Record<string, unknown>) ?? null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+    await loadBundle();
   };
-  const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string }; model?: string } | undefined;
+  const openDrawer = async () => {
+    if (await loadBundle()) setDrawerOpen(true);
+  };
+  const receipt = bundle?.receipt as { class?: string; signature?: { kid?: string; sig?: string }; model?: string; provisionedAt?: string; terminatedAt?: string } | undefined;
   const evidenceModel = typeof receipt?.model === 'string' && receipt.model ? receipt.model : 'Qwen/Qwen3.8-27B';
   const widgetReports = useMemo(() => {
-    if (!open || !bundle) return null;
+    if ((!open && !drawerOpen) || !bundle) return null;
     const ev = (bundle as { evidence?: unknown }).evidence as {
       botEvidence?: { preflight?: { nonce?: string; model?: string; nodes?: number; nonceEchoed?: boolean; modelTee?: string[]; gateway?: string[]; nvidia?: { overall?: boolean; nonceMatch?: boolean | null; gpus?: number } | null }; messages?: Array<{ seq?: number; chatId?: string | null; checked?: boolean; kind?: string; valid?: boolean; signer?: string | null; signedText?: string | null; signature?: string | null }> };
     } | undefined;
     return toVerificationReports(evidenceModel, ev?.botEvidence ?? null);
-  }, [open, bundle, evidenceModel]);
+  }, [open, drawerOpen, bundle, evidenceModel]);
   const transcript = Array.isArray(bundle?.transcript) ? (bundle?.transcript as Array<{ seq?: number; role?: string; content?: string }>) : [];
   const downloadBundle = () => {
     if (!bundle) return;
@@ -128,13 +158,51 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const inference = (bundle?.evidence as { botEvidence?: { verified?: boolean; messages?: Array<{ checked?: boolean; valid?: boolean; kind?: string }> }; preflight?: { nodes?: number; modelTee?: string[]; nvidia?: { gpus?: number } } } | undefined);
+  const att = (bundle?.evidence as { botEvidence?: { preflight?: { nodes?: number; model?: string; nvidia?: { gpus?: number } | null }; messages?: Array<{ checked?: boolean; valid?: boolean; kind?: string }>; parsing?: Array<{ path?: string; kind?: string }> } } | undefined)?.botEvidence;
+  const steps = att?.messages ?? [];
+  const validSteps = steps.filter((m) => m?.checked && m.valid === true).length;
+  const badSteps = steps.filter((m) => m?.checked && m.valid !== true).length;
+  const gpus = typeof att?.preflight?.nvidia === 'object' && att?.preflight?.nvidia !== null && 'gpus' in (att.preflight.nvidia as object) ? (att.preflight.nvidia as { gpus?: number }).gpus : undefined;
+  const runMs = (() => {
+    const t0 = receipt?.provisionedAt ? Date.parse(receipt.provisionedAt) : NaN;
+    const t1 = receipt?.terminatedAt ? Date.parse(receipt.terminatedAt) : NaN;
+    return Number.isFinite(t0) && Number.isFinite(t1) && t1 >= t0 ? t1 - t0 : null;
+  })();
+  const runDur = runMs === null ? null : runMs < 60000 ? `${Math.round(runMs / 1000)}s` : `${Math.floor(runMs / 60000)}m ${Math.round((runMs % 60000) / 1000)}s`;
+  const verificationOk = verification ? !/INVALID|unchecked/i.test(verification) : null;
+  if (!fullCard) {
+    return (
+      <div className="mt-2 rounded-xl border border-navy/15 bg-mist px-3 py-2 text-xs text-navy">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
+          <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.4} />
+          <span>Quoted from sandbox run{turn ? ` · turn ${turn}` : ''}</span>
+          {verificationOk !== null && (
+            <span className={`rounded-full px-2 py-0.5 ${verificationOk ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
+              {verificationOk ? 'signature valid' : 'signature INVALID'}
+            </span>
+          )}
+          {sandboxId && <CopyId id={sandboxId} />}
+        </p>
+        {sandboxId && onOpenVerify && (
+          <span className="mt-1 flex font-semibold">
+            <button type="button" onClick={() => onOpenVerify(sandboxId)} className="text-cta hover:underline">
+              Verify in Sessions
+            </button>
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="mt-2 rounded-xl border border-navy/15 bg-mist px-3 py-2 text-xs text-navy">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold">
         <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.4} />
-        <span>Attested run{turn ? ` · turn ${turn}` : ''}</span>
-        {verification && <span className="rounded-full bg-white px-2 py-0.5 font-mono">{verification}</span>}
+        <span>{session === 'open' ? `Sandbox session open${turn ? ` · turn ${turn}` : ''}` : `Verified sandbox run${turn ? ` · turn ${turn}` : ''}`}</span>
+        {verificationOk !== null && (
+          <span className={`rounded-full px-2 py-0.5 ${verificationOk ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
+            {verificationOk ? 'signature valid' : 'signature INVALID'}
+          </span>
+        )}
         {session === 'open' ? (
           <span className="rounded-full bg-bamber/30 px-2 py-0.5">session open</span>
         ) : (
@@ -157,14 +225,12 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
             Download bundle
           </button>
         )}
-        {bundle && (
-          <button type="button" onClick={() => setShowWidget((v) => !v)} className="text-cta hover:underline">
-            {showWidget ? 'Hide NEAR widget' : 'NEAR widget'}
-          </button>
-        )}
+        <button type="button" onClick={() => void openDrawer()} className="text-cta hover:underline">
+          NEAR Verification Center
+        </button>
         {sandboxId && onOpenVerify && (
           <button type="button" onClick={() => onOpenVerify(sandboxId)} className="text-cta hover:underline">
-            Verify in Sandboxes
+            Verify in Sessions
           </button>
         )}
       </span>
@@ -175,46 +241,51 @@ function EvidenceCard({ sandboxId, verification, policy, turn, session, receiptC
           {!loading && !error && !bundle && <p className="text-ink">No stored bundle yet — close the sandbox session first.</p>}
           {bundle && (
             <>
-              {inference?.preflight && (
-                <p>
-                  Preflight: {inference.preflight.nodes ?? '?'} node(s), {inference.preflight.modelTee?.length ?? 0} model-TEE signer(s)
-                  {typeof inference.preflight.nvidia === 'object' && inference.preflight.nvidia !== null && 'gpus' in (inference.preflight.nvidia as object) ? `, ${(inference.preflight.nvidia as { gpus?: number }).gpus ?? '?'} NVIDIA GPUs` : ''}
+              <p>
+                Checked inference · {att?.preflight?.nodes ?? '?'} TEE node(s)
+                {typeof gpus === 'number' ? ` · ${gpus} NVIDIA GPU(s)` : ''}
+                {att?.preflight?.model ? ` · ${att.preflight.model}` : ''}
+                {runDur ? ` · ran in ${runDur}` : ''}
+              </p>
+              {steps.length > 0 && (
+                <p className="mt-0.5">
+                  {validSteps} of {steps.length} step(s) verified
+                  {badSteps > 0 && <span className="font-semibold text-red-700"> · {badSteps} INVALID</span>}
                 </p>
               )}
-              {Array.isArray(inference?.botEvidence?.messages) && inference.botEvidence.messages.length > 0 && (
+              <button type="button" onClick={() => setShowDetails((v) => !v)} className="mt-1 font-semibold text-cta hover:underline">
+                {showDetails ? 'Hide technical details' : 'Technical details'}
+              </button>
+              {showDetails && (
                 <div className="mt-1 space-y-0.5">
-                  {(inference.botEvidence.messages as Array<{ checked?: boolean; valid?: boolean; kind?: string }>).map((v, i) => (
+                  {steps.map((v, i) => (
                     <p key={i} className="font-mono">
                       turn {i + 1}: {v.kind ?? '?'} · signature {v.valid === true ? 'valid' : v.checked === false ? 'unchecked' : 'INVALID'}
                     </p>
                   ))}
+                  {Array.isArray(att?.parsing) && att.parsing.length > 0 && (
+                    <p>File reading (non-attested utility): {att.parsing.map((p) => `${p.path ?? '?'} (${p.kind ?? '?'})`).join(', ')}</p>
+                  )}
+                  {receipt?.signature && (
+                    <p className="break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
+                  )}
                 </div>
               )}
-              {Array.isArray((bundle?.evidence as { parsing?: unknown[] } | undefined)?.parsing) && ((bundle?.evidence as { parsing?: unknown[] }).parsing as unknown[]).length > 0 && (
-                <p className="mt-1">Parsing (non-attested utility): {((bundle?.evidence as { parsing?: Array<{ path?: string; kind?: string }> }).parsing as Array<{ path?: string; kind?: string }>).map((p) => `${p.path ?? '?'} (${p.kind ?? '?'})`).join(', ')}</p>
+              {showHistory && transcript.length > 0 && (
+                <div className="mt-1 space-y-1 border-t border-navy/10 pt-1.5">
+                  {transcript.map((t, i) => (
+                    <p key={t.seq ?? i} className={t.role === 'user' ? 'text-ink' : ''}>
+                      <span className="font-semibold text-navy">{t.role === 'user' ? 'You' : 'Sandbox'}: </span>
+                      <span className="whitespace-pre-wrap">{String(t.content ?? '').slice(0, 2000)}{String(t.content ?? '').length > 2000 ? '…' : ''}</span>
+                    </p>
+                  ))}
+                </div>
               )}
-        {receipt?.signature && (
-          <p className="mt-1 break-all font-mono">sig {receipt.signature.kid ?? '?'}:{String(receipt.signature.sig ?? '').slice(0, 24)}…</p>
-        )}
-        {showWidget && widgetReports && (
-          <div className="mt-1 rounded-lg bg-white p-2">
-            <VerificationWidget reports={widgetReports} />
-          </div>
-        )}
-        {showHistory && transcript.length > 0 && (
-          <div className="mt-1 space-y-1 border-t border-navy/10 pt-1.5">
-            {transcript.map((t, i) => (
-              <p key={t.seq ?? i} className={t.role === 'user' ? 'text-ink' : ''}>
-                <span className="font-semibold text-navy">{t.role === 'user' ? 'You' : 'Sandbox'}: </span>
-                <span className="whitespace-pre-wrap">{String(t.content ?? '').slice(0, 2000)}{String(t.content ?? '').length > 2000 ? '…' : ''}</span>
-              </p>
-            ))}
-          </div>
-        )}
             </>
           )}
         </div>
       )}
+      <VerificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} reports={widgetReports} />
     </div>
   );
 }
@@ -263,14 +334,14 @@ function mentionQuery(draft: string): string | null {
 }
 
 const MEMBER_SUGGESTIONS = [
-  { label: 'What can you do?', desc: 'Learn what this bot helps with', prompt: 'What can you help me with?' },
-  { label: 'Write a poem', desc: 'A short river poem', prompt: 'Write a short 8-line poem about a river.' },
-  { label: 'Explain simply', desc: 'A complex topic in plain words', prompt: 'Explain how neural networks learn, simply.' },
+  { label: 'Reconcile a statement', desc: 'Attach a CSV, get every mismatch flagged', prompt: 'I attached my bank statement CSV. Reconcile it against my ledger and flag anything that doesn\'t match — I need a verified breakdown.' },
+  { label: 'Review a document', desc: 'Attach a PDF, get the risks in plain words', prompt: 'I attached a contract PDF. Review it for risky clauses and summarize what each one means for me.' },
+  { label: 'What can you do?', desc: 'How sandboxes verify your work', prompt: 'What can you help me with, and how do sandboxes verify your work?' },
 ];
 
 const CHIEF_SUGGESTIONS = [
   { label: 'Coordinate my team', desc: 'How the chief helps', prompt: 'How do you coordinate my other bots?' },
-  ...MEMBER_SUGGESTIONS.slice(1),
+  ...MEMBER_SUGGESTIONS.slice(0, 2),
 ];
 
 /** One parked clarifying question: option buttons + free-text + skip. */
@@ -329,7 +400,7 @@ function QuestionCard({ q, onAnswer }: { q: ParkedQuestion; onAnswer: (answers: 
 }
 
 /** Thread view for the selected team bot (roster lives in the sidebar). */
-export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNames, onBusy, onNeedBots, onOpenSettings, onOpenVerify, onTeamChanged }: TeamChatProps) {
+export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNames, onBusy, onNeedBots, onOpenSettings, onOpenVerify, onTeamChanged, initialPrompt, onPromptConsumed }: TeamChatProps) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [verified, setVerified] = useState(true);
   const [draft, setDraft] = useState('');
@@ -499,8 +570,17 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   // known-empty. Module-level set survives StrictMode remounts, the
   // historyReady gate survives reloads (history arrives before any hello
   // is considered), and the server refuses second hellos regardless.
+  // Example first-message from bot creation takes precedence over the
+  // hello: the template defines the role, so no greeting run is needed.
   useEffect(() => {
-    if (!bot || disabled || busy || !historyReady || entries.length > 0 || greetedBots.has(bot.id)) return;
+    if (!bot || disabled || busy || !historyReady) return;
+    if (initialPrompt && bot.id === initialPrompt.botId && entries.every((e) => e.role !== 'user')) {
+      onPromptConsumed?.();
+      greetedBots.add(bot.id);
+      void sendText(initialPrompt.text);
+      return;
+    }
+    if (entries.length > 0 || greetedBots.has(bot.id)) return;
     greetedBots.add(bot.id);
     void sendText(
       bot.role
@@ -864,18 +944,28 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
             </div>
           ))}
           {showSuggestions && (
-            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {suggestions.map((s) => (
-                <button
-                  key={s.label}
-                  onClick={() => sendText(s.prompt)}
-                  className="rounded-2xl border border-navy/15 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-cta hover:bg-cta/5"
-                >
-                  <span className="block text-sm font-bold text-navy">{s.label}</span>
-                  <span className="mt-0.5 block text-xs text-navy/50">{s.desc}</span>
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="rounded-2xl border border-navy/10 bg-white px-4 py-3 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-wide text-cta">How this works</p>
+                <p className="mt-1 text-sm text-navy">
+                  Chat here. Sensitive work runs in a <span className="font-semibold">disposable sandbox</span> with
+                  checked inference — attach a file or just ask. You get the result plus a{' '}
+                  <span className="font-semibold">signed receipt</span> you can verify.
+                </p>
+              </div>
+              <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.label}
+                    onClick={() => sendText(s.prompt)}
+                    className="rounded-2xl border border-navy/15 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-cta hover:bg-cta/5"
+                  >
+                    <span className="block text-sm font-bold text-navy">{s.label}</span>
+                    <span className="mt-0.5 block text-xs text-navy/50">{s.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           <div ref={bottomRef} />
         </div>
@@ -979,7 +1069,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
           <VoiceModal onVoiceSend={(text) => void sendText(text)} onClose={() => setVoiceOpen(false)} />
         )}
         <p className="mx-auto mt-2 max-w-2xl text-center text-xs text-slate-400">
-          Chats run on your computer · Meta open-weight · observed, never verified here
+          Your team chats here · sensitive work runs in sealed sandboxes with signed receipts
         </p>
       </div>
       {error && (
