@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { MAX_TRANSCRIPT_ENTRIES, WORKSPACE_DIR } from '../config.js';
 import { HttpError } from '../http.js';
-import { getAiCredentials, getSessionToken } from '../session.js';
+import { getAiCredentials, getRunPolicy, getSandboxProfile, getSessionToken } from '../session.js';
 import { deriveWorkspaceKey, sealFile, sha256Hex } from './crypto.js';
 import { runAi } from './ai.js';
 import {
@@ -85,6 +85,21 @@ export const botInitTool = {
     const creds = getAiCredentials();
     const provider = botConfig.provider ?? creds?.provider ?? null;
     const model = botConfig.model ?? creds?.model ?? 'Qwen/Qwen3.8-27B';
+    // Model override outside the run allowlist is rejected at init, before
+    // any transcript exists (runAi re-checks per call as the choke point).
+    const runPolicy = getRunPolicy();
+    const allowlist = runPolicy && runPolicy.allowedModels.length > 0
+      ? runPolicy.allowedModels
+      : [creds?.model ?? 'Qwen/Qwen3.8-27B'];
+    if (!allowlist.includes(model)) {
+      throw new HttpError(403, `model not permitted by run policy (allowed: ${allowlist.join(', ') || 'none'})`);
+    }
+    // Run-policy enforcement (fail closed, inside the image):
+    // verified_inference demands attested NEAR inference. An explicit
+    // non-attestable provider is refused outright; a missing credential
+    // fails as 503 either way. No silent "skip" tier exists when the
+    // policy is stated.
+    const demandsAttested = runPolicy?.securityLevel === 'verified_inference';
     if (provider === 'near-ai') {
       if (!creds) throw new HttpError(503, 'no ai credential injected for attested inference');
       try {
@@ -98,12 +113,16 @@ export const botInitTool = {
       if (!preflight.nvidia || !preflight.nvidia.overall || preflight.nvidia.nonceMatch !== true) {
         throw new HttpError(502, 'attestation preflight failed: NVIDIA verdict not clean');
       }
+    } else if (demandsAttested) {
+      throw new HttpError(501, `run policy requires verified_inference: provider ${provider ?? 'none'} cannot attest`);
     }
     return {
       ok: true as const,
       model,
       provider,
       attested: preflight !== null,
+      policy: runPolicy ? { securityLevel: runPolicy.securityLevel, enforced: true } : null,
+      profile: getSandboxProfile(),
       preflight: preflight ? { nodes: preflight.nodes, modelTee: preflight.modelTee.length, nvidiaGpus: preflight.nvidia?.gpus ?? 0 } : null,
     };
   },
@@ -181,14 +200,19 @@ export const botMessageTool = {
     const ai = await runAi(rendered, { model: botConfig.model });
     appendEntry('assistant', ai.text);
     const head = transcript[transcript.length - 1];
-    // Per-message 06-checks against the retained preflight. Skipped (not
-    // failed) when no preflight ran — standard tier has no evidence bar.
+    // Per-message 06-checks against the retained preflight. When the run
+    // policy demands verified_inference, a missing preflight fails the
+    // turn (it can only happen if init was bypassed — init enforces it).
+    // Without a stated policy the old honest skip remains for standard tier.
     const creds = getAiCredentials();
+    const policy = getRunPolicy();
     let verification: MessageVerification;
     if (preflight && creds) {
       verification = await verifyMessage(
         creds.key, head.seq, ai.chatId, ai.model, ai.requestHash, ai.responseHash, preflight,
       );
+    } else if (policy?.securityLevel === 'verified_inference') {
+      throw new HttpError(502, 'run policy requires verified_inference: no attestation preflight on record — re-init');
     } else {
       verification = {
         seq: head.seq, chatId: ai.chatId, checked: false, kind: 'unknown',
@@ -238,6 +262,8 @@ export const evidenceTool = {
   description: 'Retained attestation preflight + per-message verification records (feeds receipts).',
   schema: z.object({}),
   run: async () => ({
+    policy: getRunPolicy(),
+    profile: getSandboxProfile(),
     preflight: preflight
       ? {
           at: preflight.at,

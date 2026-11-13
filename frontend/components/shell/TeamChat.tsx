@@ -3,10 +3,11 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, PanelRight, Paperclip, Send, ShieldCheck, X } from 'lucide-react';
 import Mascot from '@/components/Mascot';
-import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun } from '@/lib/team';
+import { HistoryEntry, TeamBot, answerBotRequest, answerQuestion, decideApproval, saveTeamBot, summarizeRole, teamChat, teamHistory, waitForRun, type SandboxProfile as TeamSandboxProfile, type SandboxTarget } from '@/lib/team';
 import Markdown from './Markdown';
 import VoiceModal from './VoiceModal';
-import { Err } from './shared';
+import { CopyId, Err } from './shared';
+import { getPolicy, runSandbox, spawnSandbox, type Policy, type SandboxProfile } from '@/lib/wayfind';
 
 interface TeamChatProps {
   bot: TeamBot | null;
@@ -155,6 +156,23 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   const [attached, setAttached] = useState<Array<{ name: string; contentBase64: string }>>([]);
   const [sandboxMode, setSandboxMode] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Sandbox bar: target (direct inner run vs outer orchestration), profile
+  // (review read-only vs analysis +exec), remember-as-default, owner floor.
+  const [sandboxTarget, setSandboxTarget] = useState<SandboxTarget>('direct');
+  const [sandboxProfile, setSandboxProfile] = useState<SandboxProfile>('review');
+  const [rememberSandbox, setRememberSandbox] = useState(false);
+  const [policyFloor, setPolicyFloor] = useState<Policy | null>(null);
+  const [directBusy, setDirectBusy] = useState(false);
+  const [directRuns, setDirectRuns] = useState<Array<{
+    id: string;
+    goal: string;
+    files: string[];
+    text: string;
+    verification?: string;
+    receiptClass?: string;
+    sandboxId?: string;
+    error?: string;
+  }>>([]);
   // History for the selected bot has loaded at least once — the hello
   // effect must wait for this, otherwise it fires into the pre-load
   // empty thread on every reload and greets again.
@@ -197,16 +215,39 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       setQuestions([]);
       setApprovals([]);
       setVoiceOpen(false);
+      setAttached([]);
+      setSandboxMode(false);
+      setSandboxTarget((bot.sandboxTarget as SandboxTarget | null) ?? 'direct');
+      setSandboxProfile((bot.sandboxProfile as SandboxProfile | null) ?? 'review');
+      setRememberSandbox(false);
+      setDirectRuns([]);
       setHistoryReady(false);
       loadHistory(bot.id);
     }
   }, [bot, loadHistory]);
 
+  // Owner policy floor, loaded lazily when the sandbox bar opens — the
+  // resolved policy line is shown, not chosen (strictest wins server-side).
+  useEffect(() => {
+    if (!sandboxMode || policyFloor) return;
+    let cancelled = false;
+    getPolicy()
+      .then(({ policy }) => {
+        if (!cancelled) setPolicyFloor(policy);
+      })
+      .catch(() => {
+        if (!cancelled) setPolicyFloor(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sandboxMode, policyFloor]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [entries, busy, liveText, botReqs, agentNotes, questions, approvals]);
 
-  async function sendText(text: string, opts?: { hello?: boolean; files?: Array<{ name: string; contentBase64: string }>; sandboxMode?: boolean }) {
+  async function sendText(text: string, opts?: { hello?: boolean; files?: Array<{ name: string; contentBase64: string }>; sandboxMode?: boolean; sandboxProfile?: TeamSandboxProfile }) {
     if (!bot || (!text.trim() && !(opts?.files && opts.files.length > 0)) || busy || disabled) return;
     const learnRole = !bot.role && !bot.isChiefOfStaff && !opts?.hello;
     setBusy(true);
@@ -225,6 +266,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
       const { runId } = await teamChat(bot.id, text.trim() || '(files attached — see attachment list)', undefined, opts?.hello, {
         ...(opts?.files && opts.files.length > 0 ? { files: opts.files.map((f) => ({ path: f.name, contentBase64: f.contentBase64 })) } : {}),
         ...(opts?.sandboxMode ? { sandboxMode: true } : {}),
+        ...(opts?.sandboxMode && opts?.sandboxProfile ? { sandboxProfile: opts.sandboxProfile } : {}),
       });
       if (!runId) {
         // Server says this bot was already greeted — just show its history.
@@ -304,8 +346,79 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
   }, [bot, disabled, entries]);
 
   function send() {
+    if (sandboxMode && sandboxTarget === 'direct') {
+      void sendDirect();
+      return;
+    }
     const files = attached.length > 0 ? [...attached] : undefined;
-    sendText(draft, { ...(files ? { files } : {}), ...(sandboxMode ? { sandboxMode: true } : {}) });
+    sendText(draft, {
+      ...(files ? { files } : {}),
+      ...(sandboxMode ? { sandboxMode: true, ...(sandboxProfile ? { sandboxProfile } : {}) } : {}),
+    });
+  }
+
+  // Direct sandbox run: browser → POST /sandboxes (files sealed server-side)
+  // → POST /:id/run (init+message+terminate in one call) → result card.
+  // No outer agent in the loop — one shot, fully attested, receipted.
+  async function sendDirect() {
+    if (!bot || (!draft.trim() && attached.length === 0) || busy || disabled || directBusy) return;
+    const goal = draft.trim() || `(files attached: ${attached.map((f) => f.name).join(', ')}) — read and report the contents.`;
+    const files = attached.map((f) => f.name);
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setDirectBusy(true);
+    onBusy(bot.id);
+    setError(null);
+    setDirectRuns((prev) => [...prev, { id, goal, files, text: '' }]);
+    setDraft('');
+    setAttached([]);
+    try {
+      const bytes = new TextEncoder().encode(goal);
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      const goalHash = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      const spawned = await spawnSandbox({
+        goal,
+        goalHash,
+        fileInputs: attached.map((f) => ({ path: f.name, contentBase64: f.contentBase64 })),
+        profile: sandboxProfile,
+      });
+      const out = await runSandbox(spawned.sandboxId, { goal, goalHash });
+      if (out.error || !out.result || (out.result as { error?: string }).error) {
+        throw new Error(out.error ?? (out.result as { error?: string }).error ?? 'run failed');
+      }
+      const res = out.result as { text?: string; verification?: { kind?: string; valid?: boolean } };
+      const verification = res.verification
+        ? `${res.verification.kind ?? 'unknown'}, signature ${res.verification.valid === true ? 'valid' : 'NOT valid'}`
+        : 'none reported';
+      setDirectRuns((prev) =>
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                text: typeof res.text === 'string' && res.text ? res.text : '(empty result)',
+                verification,
+                receiptClass: out.receipt?.class,
+                sandboxId: spawned.sandboxId,
+              }
+            : r,
+        ),
+      );
+      if (rememberSandbox && bot) {
+        try {
+          await saveTeamBot({ id: bot.id, name: bot.name, sandboxTarget, sandboxProfile });
+          onTeamChanged();
+        } catch (e) {
+          console.error('[team] remember sandbox defaults failed:', e instanceof Error ? e.message : String(e));
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDirectRuns((prev) => prev.map((r) => (r.id === id ? { ...r, error: msg } : r)));
+    } finally {
+      setDirectBusy(false);
+      onBusy(null);
+    }
   }
 
   function pickFiles(list: FileList | null) {
@@ -592,6 +705,30 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
               </span>
             </div>
           )}
+          {directRuns.map((r) => (
+            <div key={r.id} className="msg-in max-w-[85%] rounded-2xl rounded-bl-sm border border-navy/15 bg-white px-4 py-2.5 text-navy shadow-sm">
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-bold text-navy">
+                <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2.4} />
+                Private sandbox run{r.files.length > 0 ? ` · ${r.files.join(', ')}` : ''}
+              </p>
+              <p className="mb-1 whitespace-pre-wrap text-xs text-ink">Goal: {r.goal}</p>
+              {!r.text && !r.error && (
+                <p className="flex items-center gap-2 text-xs text-ink">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.4} />
+                  Sandbox booting, attesting, running — this takes a few minutes…
+                </p>
+              )}
+              {r.text && <Markdown text={r.text} />}
+              {r.error && <p className="text-xs font-semibold text-red-700">Failed: {r.error}</p>}
+              {(r.verification || r.receiptClass || r.sandboxId) && (
+                <p className="mt-1.5 border-t border-navy/10 pt-1.5 text-[11px] text-ink">
+                  {r.verification ? `response: ${r.verification} · ` : ''}
+                  {r.receiptClass ? `receipt: ${r.receiptClass} · ` : ''}
+                  {r.sandboxId ? <>sandbox <CopyId id={r.sandboxId} /></> : ''}
+                </p>
+              )}
+            </div>
+          ))}
           {agentNotes.map((label) => (
             <div key={label} className="msg-in flex items-center gap-2 px-1 text-xs font-semibold text-navy/50">
               <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-bamber" />
@@ -641,6 +778,52 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
                   sandbox run
                 </span>
               )}
+            </div>
+          )}
+          {sandboxMode && (
+            <div className="mb-2 rounded-xl border border-navy/15 bg-white px-3 py-2.5 text-xs text-navy shadow-sm">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="flex items-center gap-1.5 font-semibold">
+                  Target:
+                  {(['direct', 'team'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setSandboxTarget(t)}
+                      aria-pressed={sandboxTarget === t}
+                      className={`rounded-full px-2.5 py-1 font-semibold ${sandboxTarget === t ? 'bg-navy text-white' : 'bg-slate-100 text-navy/70 hover:bg-slate-200'}`}
+                    >
+                      {t === 'direct' ? 'Private sandbox' : 'Team chat'}
+                    </button>
+                  ))}
+                </span>
+                <label className="flex items-center gap-1.5 font-semibold">
+                  Profile:
+                  <select
+                    value={sandboxProfile}
+                    onChange={(e) => setSandboxProfile(e.target.value as SandboxProfile)}
+                    className="rounded-lg border border-navy/15 bg-white px-2 py-1 text-xs text-navy"
+                  >
+                    <option value="review">Review — read-only</option>
+                    <option value="analysis">Analysis — exec allowed</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-1.5 font-semibold text-ink">
+                  <input
+                    type="checkbox"
+                    checked={rememberSandbox}
+                    onChange={(e) => setRememberSandbox(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-navy"
+                  />
+                  Remember for {bot?.name ?? 'this bot'}
+                </label>
+              </div>
+              <p className="mt-1.5 text-ink">
+                Policy: verified_inference · Qwen/Qwen3.8-27B · owner floor: {policyFloor ? policyFloor.mandatoryLevel : '…'}
+                {sandboxTarget === 'direct'
+                  ? ' — one attested run, no outer thinking.'
+                  : ' — outer plans, escalates as needed.'}
+              </p>
             </div>
           )}
           {mentions.length > 0 && (

@@ -31,6 +31,9 @@ async function teamFetch<T>(path: string, init?: { method?: string; body?: unkno
 export type BotColor = 'amber' | 'moss' | 'lagoon' | 'ash' | 'blue' | 'coral' | 'grape';
 export type BotShape = 'blob' | 'circle' | 'squircle' | 'pebble';
 
+export type SandboxTarget = 'direct' | 'team';
+export type SandboxProfile = 'review' | 'analysis';
+
 export interface TeamBot {
   id: string;
   name: string;
@@ -41,6 +44,8 @@ export interface TeamBot {
   isChiefOfStaff?: boolean | null;
   status?: string | null;
   model?: string | null;
+  sandboxTarget?: SandboxTarget | null;
+  sandboxProfile?: SandboxProfile | null;
 }
 
 export interface HistoryEntry {
@@ -62,6 +67,8 @@ export async function saveTeamBot(input: {
   color?: BotColor;
   shape?: BotShape;
   isChiefOfStaff?: boolean;
+  sandboxTarget?: SandboxTarget;
+  sandboxProfile?: SandboxProfile;
 }): Promise<TeamBot> {
   const out = await teamFetch<{ bot: TeamBot }>('/team/bots', { method: 'POST', body: input });
   return out.bot;
@@ -252,7 +259,7 @@ export interface ChatAttachment {
   contentBase64: string;
 }
 
-export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean, opts?: { files?: ChatAttachment[]; sandboxMode?: boolean }): Promise<{ runId: string | null; greeted?: boolean }> {
+export async function teamChat(botId: string, text: string, ownerId?: string, hello?: boolean, opts?: { files?: ChatAttachment[]; sandboxMode?: boolean; sandboxProfile?: SandboxProfile }): Promise<{ runId: string | null; greeted?: boolean }> {
   return teamFetch('/team/chat', {
     method: 'POST',
     body: {
@@ -262,6 +269,7 @@ export async function teamChat(botId: string, text: string, ownerId?: string, he
       ...(hello ? { hello: true } : {}),
       ...(opts?.files && opts.files.length > 0 ? { files: opts.files } : {}),
       ...(opts?.sandboxMode ? { sandboxMode: true } : {}),
+      ...(opts?.sandboxProfile ? { sandboxProfile: opts.sandboxProfile } : {}),
     },
   });
 }

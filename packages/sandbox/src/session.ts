@@ -35,3 +35,41 @@ export function getAiCredentials(): AiCredentials | null {
 export function setAiCredentials(creds: AiCredentials | null): void {
   aiCredentials = creds;
 }
+
+// Per-boot run policy, injected via /hooks/run alongside the bearer.
+// The image ENFORCES this itself (fail closed) — it does not trust the
+// provision path to have checked: no attestation, no run; model outside
+// the allowlist, no inference. This is the guarantee behind the
+// verified_inference label; a creation-time gate alone would be bypassable
+// by anyone who can call RunMicrovm.
+export interface RunPolicy {
+  /** Pinned by the control plane for inner sandboxes. */
+  securityLevel: string;
+  /** Allowed models; empty = the injected credential's model only. */
+  allowedModels: string[];
+}
+
+let runPolicy: RunPolicy | null = null;
+
+export function getRunPolicy(): RunPolicy | null {
+  return runPolicy;
+}
+
+export function setRunPolicy(policy: RunPolicy | null): void {
+  runPolicy = policy;
+}
+
+// Boot profile: review (read-only tools) or analysis (+exec). Accepted via
+// /hooks/run; absent means full tools (pre-profile callers: classic exec
+// runs and conversations). The image enforces it at the tool choke points.
+export type SandboxProfile = 'review' | 'analysis';
+
+let sandboxProfile: SandboxProfile = 'analysis';
+
+export function getSandboxProfile(): SandboxProfile {
+  return sandboxProfile;
+}
+
+export function setSandboxProfile(profile: SandboxProfile): void {
+  sandboxProfile = profile;
+}

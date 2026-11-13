@@ -1,11 +1,18 @@
 // HTTP plumbing: JSON responses, body parsing, bearer gate.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MAX_BODY_BYTES } from './config.js';
-import { getSessionToken, hasSession } from './session.js';
+import { getSandboxProfile, getSessionToken, hasSession } from './session.js';
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
+  }
+}
+
+/** Review profile denies local mutation: exec, file writes, edits. Reads stay. */
+export function requireExecAllowed(tool: string): void {
+  if (getSandboxProfile() === 'review') {
+    throw new HttpError(403, `${tool} is disabled in the review profile (read-only sandbox)`);
   }
 }
 

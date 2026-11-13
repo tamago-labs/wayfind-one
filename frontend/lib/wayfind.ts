@@ -168,3 +168,61 @@ export async function exportEvidence(id: string): Promise<unknown> {
 export async function imageTrust(): Promise<{ imageTrust: { imageArn: string | null; imageVersion: string | null; zipSha256: string | null; sbomSha256: string | null; builtAt: string | null; publishedAt: string | null; signature: { kid?: string; algo?: string; sig?: string } | null } }> {
   return apiFetch('/image-trust');
 }
+
+// ---- Inner sandboxes (direct runs from the composer sandbox bar) ----
+
+export interface SandboxFileInput {
+  path: string;
+  contentBase64: string;
+}
+
+export type SandboxProfile = 'review' | 'analysis';
+
+export interface SandboxRunPolicy {
+  securityLevel: string;
+  allowedModels: string[];
+}
+
+export interface SandboxSpawnOut {
+  sandboxId: string;
+  model: string;
+  provider: string;
+  securityLevel: string;
+  policy: SandboxRunPolicy;
+  profile: SandboxProfile;
+  provisionedAt: string;
+}
+
+export interface SandboxRunOut {
+  ok?: boolean;
+  verified?: boolean;
+  receipt?: {
+    class?: string;
+    sandboxId?: string;
+    signature?: { kid?: string; algo?: string; sig?: string };
+  } & Record<string, unknown>;
+  result?: {
+    text?: string;
+    verification?: { kind?: string; valid?: boolean };
+    error?: string;
+  };
+  evidence?: unknown;
+  error?: string;
+}
+
+export async function spawnSandbox(input: {
+  goal?: string;
+  goalHash?: string;
+  fileInputs?: SandboxFileInput[];
+  profile?: SandboxProfile;
+  model?: string;
+}): Promise<SandboxSpawnOut> {
+  return apiFetch('/sandboxes', { method: 'POST', body: input });
+}
+
+export async function runSandbox(
+  id: string,
+  input: { goal: string; goalHash?: string },
+): Promise<SandboxRunOut> {
+  return apiFetch(`/sandboxes/${encodeURIComponent(id)}/run`, { method: 'POST', body: input });
+}

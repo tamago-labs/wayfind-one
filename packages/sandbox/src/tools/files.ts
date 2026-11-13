@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { MAX_READ_BYTES } from '../config.js';
 import { jail } from '../fsutil.js';
-import { HttpError } from '../http.js';
+import { HttpError, requireExecAllowed } from '../http.js';
 import { getSessionToken } from '../session.js';
 import { deriveWorkspaceKey, sealFile } from './crypto.js';
 
@@ -22,6 +22,7 @@ function doRead(pathIn: unknown) {
 }
 
 function doWrite(pathIn: unknown, content: unknown) {
+  requireExecAllowed('write');
   if (typeof content !== 'string') throw new HttpError(400, 'content is required');
   const { abs, rel } = jail(pathIn);
   mkdirSync(path.dirname(abs), { recursive: true });

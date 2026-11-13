@@ -34,6 +34,8 @@ export const TeamBotSchema = z.object({
   isChiefOfStaff: z.boolean().default(false),
   status: z.enum(['active', 'paused']).default('active'),
   model: z.string().max(128).optional(),
+  sandboxTarget: z.enum(['direct', 'team']).optional(),
+  sandboxProfile: z.enum(['review', 'analysis']).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -103,6 +105,8 @@ export interface SaveBotInput {
   isChiefOfStaff?: boolean;
   status?: 'active' | 'paused';
   model?: string;
+  sandboxTarget?: 'direct' | 'team';
+  sandboxProfile?: 'review' | 'analysis';
 }
 
 /** Unused color/shape combo (cloud AppShell.createBot rule): prefer a
@@ -171,6 +175,8 @@ export function saveTeamBot(input: SaveBotInput): TeamBot {
     isChiefOfStaff: isChief,
     status: input.status ?? prev?.status ?? 'active',
     ...(input.model !== undefined ? { model: input.model } : prev?.model ? { model: prev.model } : {}),
+    ...(input.sandboxTarget !== undefined ? { sandboxTarget: input.sandboxTarget } : prev?.sandboxTarget ? { sandboxTarget: prev.sandboxTarget } : {}),
+    ...(input.sandboxProfile !== undefined ? { sandboxProfile: input.sandboxProfile } : prev?.sandboxProfile ? { sandboxProfile: prev.sandboxProfile } : {}),
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   });

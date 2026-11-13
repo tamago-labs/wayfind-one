@@ -519,9 +519,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return void json(res, 503, { error: 'computer not initialized — POST /hooks/run first' });
     }
     try {
-      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string; hello?: boolean; sandboxMode?: boolean; files?: Array<{ path?: string; contentBase64?: string }> };
+      const body = JSON.parse(await readBody(req)) as { botId?: string; text?: string; model?: string; apiUrl?: string; ownerId?: string; hello?: boolean; sandboxMode?: boolean; sandboxProfile?: string; files?: Array<{ path?: string; contentBase64?: string }> };
       if (!body || typeof body.botId !== 'string' || typeof body.text !== 'string' || !body.text.trim()) {
-        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId?, hello?, sandboxMode?, files? }' });
+        return void json(res, 400, { error: 'Body must be { botId, text, model?, apiUrl?, ownerId?, hello?, sandboxMode?, sandboxProfile?, files? }' });
       }
       const bot = getTeamBot(body.botId);
       if (!bot || bot.status !== 'active') {
@@ -564,9 +564,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         writeFileSync(abs, buf);
         attachments.push(rel);
       }
+      const sandboxProfile = body.sandboxProfile === 'review' || body.sandboxProfile === 'analysis' ? body.sandboxProfile : undefined;
       const system = `You are ${bot.name}${bot.role ? ` — ${bot.role}` : ''}.${bot.description ? ` ${bot.description}` : ''}${threadHistoryBlock(bot.id)}` +
         (attachments.length > 0 ? ` The user attached ${attachments.length} file(s): ${attachments.join(', ')}.` : '') +
-        (body.sandboxMode === true ? ' The user toggled sandbox mode: run this task in a disposable attested inner sandbox — call spawn_inner_sandbox with the goal and the attached files.' : '');
+        (body.sandboxMode === true ? ` The user toggled sandbox mode: run this task in a disposable attested inner sandbox — call spawn_inner_sandbox with the goal and the attached files${sandboxProfile ? ` (profile: ${sandboxProfile})` : ''}.` : '');
       const isChief = bot.isChiefOfStaff === true;
       const all = listTeamBots().slice(0, 50);
       const chief = all.find((b) => b.isChiefOfStaff && b.status !== 'paused');

@@ -92,7 +92,7 @@ function readInputs(refs: string[]): { inputs: Array<{ path: string; contentBase
 /** Escalation runner: spawn → init → run → terminate. Returns text. */
 async function runEscalation(
   api: ApiCtx,
-  args: { goal: string; fileRefs?: string[]; policy?: string },
+  args: { goal: string; fileRefs?: string[]; profile?: 'review' | 'analysis' },
 ): Promise<string> {
   const refs = Array.isArray(args.fileRefs) ? args.fileRefs.filter((r): r is string => typeof r === 'string') : [];
   const read = readInputs(refs);
@@ -105,10 +105,13 @@ async function runEscalation(
     goalHash,
     fileInputs: read.inputs,
     model: INNER_MODEL,
+    ...(args.profile === 'review' || args.profile === 'analysis' ? { profile: args.profile } : {}),
   });
-  const spawned = spawn.data as { sandboxId?: string; error?: string };
+  const spawned = spawn.data as { sandboxId?: string; error?: string; policy?: { securityLevel?: string } };
   if (!spawn.ok || !spawned.sandboxId) {
-    return `Inner sandbox spawn failed: ${spawned.error ?? `backend → ${spawn.status}`}.`;
+    // Quote the backend error verbatim so failures stay diagnosable
+    // instead of being paraphrased away.
+    return `Inner sandbox spawn failed: \`spawn → ${spawn.status}: ${spawned.error ?? 'no error detail'}\`. No sandbox was started.`;
   }
   const sid = spawned.sandboxId;
   const fail = async (why: string): Promise<string> => {
@@ -135,8 +138,10 @@ async function runEscalation(
   });
   if (!run.ok) {
     const d = run.data as { error?: string; result?: { error?: string } };
-    return fail(`Inner sandbox run failed: ${d.result?.error ?? d.error ?? `backend → ${run.status}`}. The sandbox was terminated.`);
+    return fail(`Inner sandbox run failed: \`message → ${run.status}: ${d.result?.error ?? d.error ?? 'no error detail'}\`. The sandbox was terminated.`);
   }
+  const runData = (run.data as { result?: { text?: unknown; verification?: { kind?: string; valid?: boolean } } }).result;
+  const verification = runData?.verification;
   const term = await postJson(api, `/sandboxes/${sid}/terminate`, {
     ...(api.computerId ? { computerId: api.computerId } : {}),
     goalHash,
@@ -150,14 +155,18 @@ async function runEscalation(
     error?: string;
   };
   if (!term.ok) {
-    return fail(`Inner sandbox finished but terminate failed: ${t.error ?? `backend → ${term.status}`}. Treat the result as unverified.`);
+    return fail(`Inner sandbox finished but terminate failed: \`terminate → ${term.status}: ${t.error ?? 'no error detail'}\`. Treat the result as unverified.`);
   }
-  const text = ((run.data as { result?: { text?: unknown } }).result?.text ?? '') as string;
+  const text = (runData?.text ?? '') as string;
   const receiptClass = t.receipt?.class ?? 'unknown';
-  const verified = t.verified === true && receiptClass === 'signed' ? 'verified kill, signed receipt' : `kill verified=${t.verified === true}, receipt ${receiptClass}`;
+  const enforcedPolicy = spawned.policy?.securityLevel ?? 'verified_inference';
+  const verifiedLine = verification
+    ? `response verification: ${verification.kind ?? 'unknown'}, signature ${verification.valid === true ? 'valid' : 'NOT valid'}`
+    : 'response verification: none reported';
   return (
-    `<inner_result sandbox="${sid}" goal-sha256="${goalHash}" closeout="${verified}">\n` +
+    `<inner_result sandbox="${sid}" goal-sha256="${goalHash}" policy="${enforcedPolicy} (enforced inside the sandbox)" closeout="${t.verified === true ? 'verified kill' : 'kill UNVERIFIED'}, receipt ${receiptClass}">\n` +
     `${typeof text === 'string' && text ? text : '(inner run returned no text — see evidence)'}\n` +
+    `${verifiedLine}\n` +
     `</inner_result>`
   );
 }
@@ -175,21 +184,23 @@ async function escalationAsks(): Promise<boolean> {
 export function createSpawnInnerSandboxTool(opts: GuardOpts): ReturnType<typeof tool> {
   return tool({
     name: 'spawn_inner_sandbox',
-    description:
-      'Run sensitive work in a disposable attested inner sandbox (near-ai only, verified_inference only, killed after the task). ' +
-      'Use when the task involves sensitive files or data that must never land on this computer: files go sealed direct-to-inner, ' +
-      'and { result, evidence } comes back. ' +
-      'This is a bounded blocking call — you stay responsible for the final answer; relay the result in your own words. ' +
-      'Only name workspace files you have actually listed or read.',
+      description:
+        'Run sensitive work in a disposable attested inner sandbox (near-ai only, killed after the task). ' +
+        'Policy is enforced inside the sandbox itself: verified_inference is mandatory, attestation ' +
+        'preflight must pass, and only the run allowlist models can infer — the sandbox refuses otherwise. ' +
+        'Use when the task involves sensitive files or data that must never land on this computer: ' +
+        'files go sealed direct-to-inner, and { result, evidence } comes back. ' +
+        'This is a bounded blocking call — you stay responsible for the final answer; relay the result in your own words. ' +
+        'Only name workspace files you have actually listed or read.',
     parameters: z.object({
       goal: z.string().describe('What the inner sandbox should do, as a self-contained task'),
       fileRefs: z.array(z.string()).describe('Workspace-relative file paths to push sealed direct-to-inner').optional(),
-      policy: z.string().describe('Reserved (inner runs pin verified_inference)').optional(),
+      profile: z.enum(['review', 'analysis']).describe('Sandbox profile: review is read-only and cheapest, analysis allows local exec').optional(),
     }),
     execute: guarded(
       'spawn_inner_sandbox',
       (a: { goal: string }) => a.goal.slice(0, 80),
-      async (a: { goal: string; fileRefs?: string[]; policy?: string }) => {
+      async (a: { goal: string; fileRefs?: string[]; profile?: 'review' | 'analysis' }) => {
         if (!a.goal.trim()) return 'spawn_inner_sandbox needs a goal.';
         const api = apiCtx(opts);
         if ('missing' in api) {

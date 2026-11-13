@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { AI_TIMEOUT_MS, MAX_AI_PROMPT_CHARS, NEARAI_BASE_URL } from '../config.js';
 import { sha256Hex } from './crypto.js';
 import { HttpError } from '../http.js';
-import { getAiCredentials } from '../session.js';
+import { getAiCredentials, getRunPolicy } from '../session.js';
 
 const DEFAULT_MODEL = 'Qwen/Qwen3.8-27B';
 
@@ -29,6 +29,15 @@ export async function runAi(
     throw new HttpError(501, `provider ${creds.provider} not wired for in-VM inference yet`);
   }
   const model = opts.model || creds.model || DEFAULT_MODEL;
+  // In-image policy enforcement (choke point for every inference path):
+  // the model must be in the run allowlist — injected credential's model
+  // when the policy names none. A smuggled opts.model fails closed here,
+  // regardless of what the provision path allowed.
+  const policy = getRunPolicy();
+  const allowlist = policy && policy.allowedModels.length > 0 ? policy.allowedModels : [creds.model || DEFAULT_MODEL];
+  if (!allowlist.includes(model)) {
+    throw new HttpError(403, `model not permitted by run policy (allowed: ${allowlist.join(', ') || 'none'})`);
+  }
   const requestBody = JSON.stringify({
     messages: [{ role: 'user', content: prompt }],
     stream: false,

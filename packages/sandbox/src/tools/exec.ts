@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { z } from 'zod';
 import { EXEC_TIMEOUT_MS, MAX_OUTPUT_BYTES, WORKSPACE_DIR } from '../config.js';
 import { jail } from '../fsutil.js';
-import { HttpError } from '../http.js';
+import { HttpError, requireExecAllowed } from '../http.js';
 
 export const name = 'exec';
 export const description = 'Run a shell command inside the sandbox workspace.';
@@ -14,6 +14,7 @@ export const schema = z.object({
 });
 
 export async function run(args: z.infer<typeof schema>) {
+  requireExecAllowed('exec');
   const { cmd, cwd: cwdIn, timeoutMs: timeoutIn } = args;
   if (!cmd) throw new HttpError(400, 'cmd is required');
   const cwd = typeof cwdIn === 'string' && cwdIn ? jail(cwdIn).abs : WORKSPACE_DIR;

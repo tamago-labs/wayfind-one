@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { MIN_SESSION_TOKEN_LEN, WORKSPACE_DIR } from './config.js';
 import { json, readBody } from './http.js';
-import { hasSession, setAiCredentials, setSessionToken, type AiCredentials } from './session.js';
+import { hasSession, setAiCredentials, setRunPolicy, setSandboxProfile, setSessionToken, type AiCredentials, type RunPolicy, type SandboxProfile } from './session.js';
 
 const RT = '/aws/lambda-microvms/runtime/v1';
 
@@ -50,7 +50,7 @@ export async function handleLifecycle(
     return true;
   }
   if (RUN.has(route)) {
-    const body = (await readBody(req)) as { sessionToken?: unknown; aiCredentials?: unknown };
+    const body = (await readBody(req)) as { sessionToken?: unknown; aiCredentials?: unknown; policy?: unknown; profile?: unknown };
     if (typeof body.sessionToken === 'string') {
       if (body.sessionToken.length < MIN_SESSION_TOKEN_LEN) {
         json(res, 400, { error: 'sessionToken must be at least 16 chars' });
@@ -69,6 +69,24 @@ export async function handleLifecycle(
           ...(typeof ac.model === 'string' && ac.model ? { model: ac.model } : {}),
         });
       }
+    }
+    // Optional per-boot run policy (memory-only). Shape:
+    // { securityLevel, allowedModels? }. The image enforces it on every
+    // inference path — absent means "no policy stated", and attested-only
+    // callers must pass verified_inference explicitly.
+    const pol = body.policy as Partial<RunPolicy> | undefined;
+    if (pol && typeof pol === 'object' && typeof pol.securityLevel === 'string' && pol.securityLevel) {
+      setRunPolicy({
+        securityLevel: pol.securityLevel,
+        allowedModels: Array.isArray(pol.allowedModels) ? pol.allowedModels.filter((m): m is string => typeof m === 'string') : [],
+      });
+    }
+    // Optional boot profile (review = read-only tools, analysis = +exec).
+    // Absent means full tools (pre-profile callers). Enforced at the tool
+    // choke points, not here.
+    const prof = body.profile as SandboxProfile | undefined;
+    if (prof === 'review' || prof === 'analysis') {
+      setSandboxProfile(prof);
     }
     mkdirSync(WORKSPACE_DIR, { recursive: true });
     json(res, 200, { ok: true, workspace: WORKSPACE_DIR, session: hasSession() });
