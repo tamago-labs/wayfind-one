@@ -776,7 +776,7 @@ export default function TeamChat({ bot, bots, disabled, disabledHint, mentionNam
               </>
             );
           })()}
-          {escalatedAt !== null && (
+          {busy && !liveText && escalatedAt !== null && (
             <EscalationTimer since={escalatedAt} onDismiss={() => setEscalatedAt(null)} />
           )}
           {busy && liveText && (
