@@ -1,0 +1,24 @@
+{
+  "version": "wayfind-receipt/v0",
+  "class": "observed",
+  "kind": "inner-sandbox",
+  "sandboxId": "microvm-example0000-0000-0000-0000-000000000000",
+  "parentComputerId": "computer-example0000-0000-0000-000000000000",
+  "goalHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "model": "Qwen/Qwen3.8-27B",
+  "provider": "near-ai",
+  "securityLevel": "verified_inference",
+  "policy": "verified_inference",
+  "provisionedAt": "2026-11-10T12:00:00.000Z",
+  "terminatedAt": "2026-11-10T12:04:31.000Z",
+  "cleanup": {
+    "vmTerminated": true
+  },
+  "finalSnapshot": {
+    "recorded": true,
+    "seq": 0,
+    "sha256": "71fd2a30f32a991dbe6858f27c3e2e0ebf8b659d64418be9382b26245534f42f"
+  },
+  "inference": null,
+  "_note": "EXAMPLE fixture for offline shape checks (wayfind verify). Real receipts are signed (class:signed + Ed25519 signature) and carry inference evidence; verify those via the live path. Do not treat this file as proof of any real execution."
+}
