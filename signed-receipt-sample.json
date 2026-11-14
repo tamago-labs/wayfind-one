@@ -1,0 +1,79 @@
+{
+  "version": "wayfind-receipt/v0",
+  "class": "signed",
+  "kind": "inner-sandbox",
+  "sandboxId": "microvm-88442eaa-f907-35b8-9f9f-e7d479216924",
+  "parentComputerId": "5409dc04-768d-4b0e-853e-8f097fe61b73",
+  "goalHash": "close:cli/team/4890ce70-cce3-4009-9fee-f48153cc18d4",
+  "model": "Qwen/Qwen3.8-27B",
+  "provider": "near-ai",
+  "securityLevel": "verified_inference",
+  "policy": "verified_inference",
+  "provisionedAt": "2026-11-13T13:05:04.523Z",
+  "terminatedAt": "2026-11-13T13:07:38.439Z",
+  "cleanup": {
+    "vmTerminated": true
+  },
+  "finalSnapshot": {
+    "recorded": true,
+    "sha256": "32ec2b6329e6b1ad17cd7c2b805161262392c88d59a79a771dcddc589c2074bb"
+  },
+  "inference": {
+    "checkpoint": {
+      "seq": 0,
+      "sha256": "32ec2b6329e6b1ad17cd7c2b805161262392c88d59a79a771dcddc589c2074bb",
+      "nonce": "M1U7NyFp1oURB2KC",
+      "data": "Pey75/ZQDLII30lFpGXOl8ygeDiyLOm3JiEbnl26TnLqqI7Y1JHBrzVkBXuEASr5nFvLtH1DzVWK2Q1chZpKyUtm2tfExFk54PxWah8IPky05qc3d5FUy9yPYq0ggcYgaP67GSXidk9y8DuDE0H3YGVPhi0edEwEmuCBoyLWkvla4rHJpjm+eYZb9l+Rdt2UoCcdWKg6TSYLYAzH2TtMQ8Uk35jtPZdUF7AvIMOmhPO4t3gcfMgiT1jXpyhogdwB3bFI42oNYakl3RxTH/kkpI8z+lpLCi6/3o5I2Sw2kaMJpK1A7qiRdZCGO1dmFuYpZr/GDrjAK4O+gHmoxs9PSyGtIrpeoz569uO9mbvZRGJKxQ1rthl1no2LphnUIDDPeohi6xUEg8zBoLEQDYhv8vD0MNFTUOQ9ayYPXpVOZmYPLKFnolCTFMf0F0n7sgHIQj1qNfkWLAnFsD2kZiZiMoYoXFZ+U1TZnZZ8jgRhp2+HkFCFMkR6V6AfNbFoOHY90iEExAv+fgtCdxb1WLw4e2IIwfN5Or+TdTT7UJESReS7CgPrDXpBXJkUEQ=="
+    },
+    "botEvidence": {
+      "policy": {
+        "securityLevel": "verified_inference",
+        "allowedModels": [
+          "Qwen/Qwen3.8-27B"
+        ]
+      },
+      "profile": "review",
+      "parsing": [],
+      "preflight": {
+        "at": "2026-11-13T13:05:07.151Z",
+        "nonce": "95bfaa4299c95bccfd29b4c66b49f33389f1bf7c0b0cb545495211d04ef4ffa1",
+        "model": "Qwen/Qwen3.8-27B",
+        "nodes": 1,
+        "nonceEchoed": true,
+        "modelTee": [
+          "0x835ab53d20294ef795906dff21ae4c045336aa26"
+        ],
+        "gateway": [
+          "0xb98a789cdc4817275f5155593ba73ef2a957e779"
+        ],
+        "nvidia": {
+          "overall": true,
+          "nonceMatch": true,
+          "gpus": 8
+        }
+      },
+      "messages": [
+        {
+          "seq": 1,
+          "chatId": "97c4d506aad148aebd6dc09be5be4854",
+          "checked": true,
+          "kind": "provider_tee",
+          "kindMatch": true,
+          "requestHashMatch": true,
+          "responseHashMatch": true,
+          "modelMatch": true,
+          "signer": "0x835AB53d20294Ef795906DFf21aE4C045336aa26",
+          "valid": true,
+          "signedText": "Qwen/Qwen3.8-27B:3a3c2ed1396f0ff5a3dda339eb84e16396c42486649fae37fa8c7005c3c9af1a:756a93f3e0baf785ba36531598ab0b855085f398011e7f6924e55799bccf6063",
+          "signature": "0xf54b0be22183a88fc9627dc7d9dd96f474f5800f4cc3f0d2804c57c7bb70e2854656fcf2e6c000dd53b48fa9fad6630ab962d81974574708c983e478cc559e0b1c"
+        }
+      ],
+      "verified": true
+    }
+  },
+  "signature": {
+    "kid": "218ecd601d93b709",
+    "algo": "ed25519",
+    "sig": "J8iROW38EdEUOnJ8ptKILQRd4EHv_ePiCF0sEnlgCeHwhOV2TjwrU_rXYXavSPibtABlA-LKHCtRob8u8ovwCw"
+  }
+}

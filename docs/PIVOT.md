@@ -2,7 +2,7 @@
 
 Date: 2026-11-10 (final rewrite). Status: v1 archived under `v1/`.
 PLAN-P0.md (CLI device-flow login) is deleted — shipped history, not the plan.
-Active spec: PLAN-P1.md.
+Active spec: docs/PLAN-P1.md.
 
 ## 1. What Wayfind v2 is
 
