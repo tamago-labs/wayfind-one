@@ -14,3 +14,5 @@ scripts/near-ai-tests/.attestation-report.json
 scripts/near-ai-tests/.receipt-example.json
 
 .*-image-state.json
+docs/SUBMISSION.md
+

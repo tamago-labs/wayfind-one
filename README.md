@@ -9,6 +9,7 @@ It gives a team an always-on AI workforce. You create a teammate, such as an HR 
 ## Quick links
 
 - Platform: https://one.wayfind.click
+- Demo video (2:30): https://www.youtube.com/watch?v=Xj6Iudr8TvA
 - Signed sample receipt (Ed25519, passes `wayfind verify` offline; a trivial test question with no personal data): [signed-receipt-sample.json](signed-receipt-sample.json)
 - Backend repo (baseline, not submitted): https://github.com/tamago-labs/wayfind-cloud
 - Product vision: [docs/PIVOT.md](docs/PIVOT.md)
@@ -158,15 +159,17 @@ sequenceDiagram
     U->>CP: independent verify (CLI / panel / NEAR widget)
 ```
 
-### Lifecycle of one inner run
+### How a sensitive task runs
 
-1. **Create:** the user picks a bot (or ad hoc task), a model, and a security level, and attaches files. The CLI can also provision directly.
-2. **Provision:** the backend boots a disposable microVM, mints a per-session bearer, and records a session row. Policy gates fail closed here.
-3. **Attest:** the VM runs its preflight (fresh nonce, per-node echo, NVIDIA verdict). If it fails, the session stops before any prompt is sent.
-4. **Work:** messages append to a hash-chained transcript. Each runs one non-streaming inference, and the response signature is verified against the retained preflight.
-5. **Checkpoint:** sealed transcript snapshots are stored on demand and always at terminate. Blobs are opaque to the backend. Manifests are hashes.
-6. **Terminate:** final snapshot, evidence pull, verified VM kill, keys revoked. A receipt is built and signed.
-7. **Verify:** CLI, website panel, and NEAR widget check the same evidence.
+1. **Create the bot:** create an HR assistant and give it context, such as "review candidate resumes and flag missing experience, gaps in employment, or mismatched skills."
+2. **Attach the file:** in the team chat, attach the file (PDF or image, up to 5 files of 10 MB each), then ask the bot to review it.
+3. **Approve:** the bot asks to open a sandbox, and you approve the request in the chat. 
+4. **Seal and send:** the file is sealed and sent to a new disposable microVM. The outer agent sees only the file name and id.
+5. **Attest and work:** the microVM checks NEAR AI's attestation before the first prompt, then runs the task. Each reply is verified against the retained attestation.
+6. **Close:** the microVM is destroyed, and a signed receipt is written.
+7. **Check:** the chat shows an evidence card. Click "Verify in Sessions" to see the receipt and verify it.
+
+The CLI runs the same steps: `wayfind run` to start and `wayfind verify` to check a receipt.
 
 One open sandbox per thread: follow-ups reuse the live sandbox. It closes after 30 minutes idle, on `close_inner_sandbox`, or when the computer terminates. Nesting is capped at 2: the inner image has no escalation tool.
 
@@ -180,6 +183,17 @@ One open sandbox per thread: follow-ups reuse the live sandbox. It closes after 
 | Inner VM → escalation | None (nesting cap 2) | No escalation tool in the inner image |
 | Evidence → tampering | Hash-chained transcripts, sealed checkpoints, signed receipts, append-only audit | `verifyReceipt` (CLI + panel) + NEAR widget |
 | Images → supply chain | Build pipeline plus control-plane-signed trust record, checked offline | `scripts/image`, `scripts/outer-image`, `wayfind image-trust` |
+
+### Sealed files in the inner sandbox
+
+Files that enter or leave an inner sandbox are sealed with AES-256-GCM:
+
+- **Key:** derived with HKDF-SHA256 from the per-session bearer. The bearer is injected at boot and is not written to disk.
+- **Nonce:** a fresh 12-byte nonce for each file.
+- **Binding:** the file path and the plaintext SHA-256 are authenticated data. A swapped file or renamed path fails to decrypt.
+- **Where it applies:** sealed uploads into the workspace, sealed reads back out, and sealed transcript checkpoints. The outer agent never holds the key.
+
+Implementation: `packages/sandbox/src/tools/crypto.ts` (the CLI mirror is `src/sandbox/crypto.js`).
 
 ### Verification (three paths, same evidence)
 
@@ -204,10 +218,16 @@ A receipt binds `{ outerComputerId, innerSandboxId, taskDescriptorHash }` (nesti
 
 ## Known limits
 
-- Strict-confidential execution (hardware-attested worker, Phase 3 AWS Nitro backend) is **not built**. Requests for that level fail closed and never silently downgrade.
+- Strict-confidential execution (hardware-attested sandbox host) is **not built**. Requests for that level fail closed and never silently downgrade. See the Roadmap.
 - Outer-agent inference (Meta Muse Spark Open via Modal) is not attested. Claims about the outer agent are `observed` only.
 - Only inner-sandbox inference is verified per response. Streamed responses carry gateway signatures, not model-TEE signatures, so attestation-grade tasks use non-streaming calls.
 - Full TDX quote verification is deferred to the upstream NEAR verifier.
+
+## Roadmap
+
+- **Now:** live for early access at https://one.wayfind.click. Usage is tracked and shown in the Usage panel.
+- **Next:** let users buy usage credits through a payment gateway, once usage is steady.
+- **Later:** move the sandbox host from AWS Lambda MicroVMs to AWS Nitro Enclaves-backed hosts, so strict-confidential runs on hardware-attested infrastructure. Until then, that level fails closed.
 
 ## Baseline disclosure
 
@@ -216,7 +236,7 @@ Per hackathon rules Q-002 to Q-005:
 - [`wayfind-cloud`](https://github.com/tamago-labs/wayfind-cloud) (Amplify backend, classic computer image, dashboard) predates the hackathon window and is baseline infrastructure, not the submission.
 - Built in-window in **this repo**: nested-sandbox architecture, attested-inference path with per-message verification, signed execution receipts, outer-blind sealed file flow, evidence bundle with three-way verification, and the NEAR attestation proof kit.
 - Pre-existing libraries, the Amplify scaffold, and AI-assisted code are baseline or tooling per Q-005.
-- Hackathon diff: `https://github.com/tamago-labs/wayfind-one/compare/<pre-hackathon-tag>...<hackathon-submission-tag>` (tags are cut at submission; this placeholder is replaced then).
+- Hackathon diff: https://github.com/tamago-labs/wayfind-one/compare/pre-hackathon...hackathon-submission
 
 ## License
 
